@@ -1,0 +1,13 @@
+Django>=5.0
+djangorestframework>=3.14
+djangorestframework-simplejwt>=5.3
+django-cors-headers>=4.3
+psycopg2-binary>=2.9
+python-dotenv>=1.0
+anthropic>=0.40
+gunicorn>=21.0
+requests>=2.31
+apscheduler>=3.10
+google-genai>=1.0
+dj-database-url>=2.0
+whitenoise>=6.6
