@@ -32,7 +32,7 @@ def linkedin_auth(request):
         'response_type': 'code',
         'client_id': settings.LINKEDIN_CLIENT_ID,
         'redirect_uri': settings.LINKEDIN_REDIRECT_URI,
-        'scope': 'openid profile email w_member_social r_member_social r_member_postAnalytics',
+        'scope': 'openid profile email w_member_social',
         'state': action,
     }
     auth_url = f"{LINKEDIN_AUTH_URL}?{urlencode(params)}"
