@@ -26,6 +26,7 @@ def post_fork(server, worker):
     """Start the scheduler only in the FIRST worker to avoid duplicates."""
     if worker.age == 1:
         server.log.info(f"Starting scheduler in worker {worker.pid}...")
+        os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
         import django
         django.setup()
         from api import scheduler
