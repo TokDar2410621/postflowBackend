@@ -151,9 +151,11 @@ def generate_image(request):
 
         client = genai.Client(api_key=settings.GOOGLE_API_KEY)
 
+        full_prompt = f"{prompt}. IMPORTANT: Do not include any text, letters, words, watermarks or typography on the image."
+
         response = client.models.generate_content(
             model="gemini-2.5-flash-image",
-            contents=[prompt],
+            contents=[full_prompt],
             config=types.GenerateContentConfig(
                 response_modalities=["TEXT", "IMAGE"],
             )
