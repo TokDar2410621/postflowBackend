@@ -28,12 +28,26 @@ LINKEDIN_ASSETS_URL = "https://api.linkedin.com/v2/assets"
 def linkedin_auth(request):
     """Redirige vers la page d'autorisation LinkedIn"""
     action = request.GET.get('action', 'connect')  # 'login' ou 'connect'
+    token = request.GET.get('token', '')
+
+    # Decode JWT to get user_id for the connect flow
+    user_id = ''
+    if token:
+        try:
+            from rest_framework_simplejwt.tokens import AccessToken
+            access = AccessToken(token)
+            user_id = str(access['user_id'])
+        except Exception:
+            pass
+
+    state = f'{action}:{user_id}' if user_id else action
+
     params = {
         'response_type': 'code',
         'client_id': settings.LINKEDIN_CLIENT_ID,
         'redirect_uri': settings.LINKEDIN_REDIRECT_URI,
         'scope': 'openid profile email w_member_social',
-        'state': action,
+        'state': state,
     }
     auth_url = f"{LINKEDIN_AUTH_URL}?{urlencode(params)}"
     return redirect(auth_url)
@@ -44,7 +58,12 @@ def linkedin_callback(request):
     """Callback OAuth - échange le code contre un token"""
     code = request.GET.get('code')
     error = request.GET.get('error')
-    state = request.GET.get('state', 'connect')
+    raw_state = request.GET.get('state', 'connect')
+
+    # Parse state: "action:user_id" or just "action"
+    parts = raw_state.split(':', 1)
+    state = parts[0]
+    state_user_id = int(parts[1]) if len(parts) > 1 and parts[1] else None
 
     if error:
         return redirect(f"{settings.FRONTEND_URL}?linkedin_error={error}")
@@ -140,10 +159,18 @@ def linkedin_callback(request):
         return redirect(f"{settings.FRONTEND_URL}?linkedin_auth={encoded}")
 
     else:
-        # --- Flow CONNECT : juste lier le compte LinkedIn ---
+        # --- Flow CONNECT : lier le compte LinkedIn à l'utilisateur ---
+        connect_user = None
+        if state_user_id:
+            try:
+                connect_user = User.objects.get(pk=state_user_id)
+            except User.DoesNotExist:
+                pass
+
         LinkedInAccount.objects.update_or_create(
             linkedin_id=linkedin_id,
             defaults={
+                'user': connect_user,
                 'name': name,
                 'access_token': access_token,
                 'expires_at': expires_at,
