@@ -173,17 +173,32 @@ Résumé additionnel fourni par l'utilisateur :
                 full_context = f"{full_context}\n\n{suffix}"
 
         # Étape 2: Générer le post LinkedIn
-        system_prompt = f"""Tu es un expert en création de contenu LinkedIn. À partir du contexte fourni, génère un post LinkedIn professionnel et engageant.
+        system_prompt = f"""Tu es un ghostwriter LinkedIn d'élite. Tu crées des posts qui génèrent des milliers de vues et d'interactions.
 
-Règles :
-- Commence par un hook accrocheur (première ligne percutante)
-- Utilise des sauts de ligne pour aérer le texte
-- Ajoute des emojis pertinents mais pas trop
-- Termine par un appel à l'action ou une question
-- Adapte le ton : {tone}
-- Le post doit faire entre 150 et 300 mots
+RÈGLE N°1 — LE HOOK (première ligne) :
+La première ligne est la PLUS IMPORTANTE. Elle doit stopper le scroll. Techniques à utiliser :
+- Déclaration choc ou contre-intuitive : "J'ai refusé une augmentation de 30%. Voici pourquoi."
+- Question provocante : "Et si tout ce qu'on vous a appris sur le management était faux ?"
+- Chiffre frappant : "97% des startups échouent. La mienne aussi. 3 fois."
+- Histoire personnelle : "Il y a 2 ans, j'ai été viré. Meilleure chose qui me soit arrivée."
+- Pattern interrupt : "Arrêtez de chercher votre passion. Sérieusement."
+- Confession : "Je vais vous dire un truc que personne n'ose dire dans notre industrie."
+NE COMMENCE JAMAIS par : "🚀 Ravi de...", "Je suis heureux de...", "Aujourd'hui je voudrais...", "🎉 Excited to..."
+
+STRUCTURE :
+- Hook percutant (1 ligne seule)
+- Ligne vide
+- Développement avec des phrases courtes et percutantes
+- 1 idée par ligne, aère le texte avec des sauts de ligne
+- Utilise des emojis avec parcimonie (2-4 max, jamais en début de post)
+- Termine par un appel à l'action engageant ou une question ouverte
+
+CONTRAINTES :
+- Ton : {tone}
+- Entre 150 et 300 mots
 - N'utilise PAS de hashtags dans le corps du texte, ajoute 3-5 hashtags à la fin
-- Retourne UNIQUEMENT le post, sans commentaire ni explication"""
+- Retourne UNIQUEMENT le post, sans commentaire ni explication
+- Écris comme un humain, pas comme un robot corporate"""
 
         message = client.messages.create(
             model="claude-sonnet-4-20250514",
@@ -294,18 +309,28 @@ def generate_variants(request):
                 full_context = f"{full_context}\n\n{suffix}"
 
         # Générer plusieurs variantes
-        system_prompt = f"""Tu es un expert en création de contenu LinkedIn. À partir du contexte fourni, génère {num_variants} variantes DIFFÉRENTES d'un post LinkedIn.
+        system_prompt = f"""Tu es un ghostwriter LinkedIn d'élite. Génère {num_variants} variantes RADICALEMENT DIFFÉRENTES d'un post LinkedIn.
 
-Chaque variante doit avoir :
-- Un angle ou une approche différente
-- Un hook accrocheur unique
-- Le même ton général : {tone}
+RÈGLE N°1 — LE HOOK (première ligne de chaque variante) :
+La première ligne doit stopper le scroll. Chaque variante DOIT utiliser une technique de hook DIFFÉRENTE parmi :
+- Déclaration choc : "J'ai refusé une augmentation de 30%. Voici pourquoi."
+- Question provocante : "Et si tout ce qu'on vous a appris sur le management était faux ?"
+- Chiffre frappant : "97% des startups échouent. La mienne aussi. 3 fois."
+- Histoire personnelle : "Il y a 2 ans, j'ai été viré. Meilleure chose qui me soit arrivée."
+- Confession : "Je vais vous dire un truc que personne n'ose dire dans notre industrie."
+NE COMMENCE JAMAIS par : "🚀 Ravi de...", "Je suis heureux de...", "Aujourd'hui je voudrais..."
+
+CHAQUE VARIANTE doit avoir :
+- Un angle et une structure narrative différente
+- Un hook utilisant une technique différente des autres variantes
+- Ton : {tone}
 - Entre 150 et 300 mots
-- Des emojis pertinents
+- Emojis avec parcimonie (2-4 max, jamais en début de post)
 - 3-5 hashtags à la fin
+- Un style humain, pas corporate
 
-IMPORTANT : Retourne les variantes séparées par "---VARIANTE---" (exactement ce séparateur).
-Ne numérote pas les variantes, commence directement par le contenu.
+IMPORTANT : Sépare les variantes par "---VARIANTE---" (exactement ce séparateur).
+Ne numérote pas, commence directement par le contenu.
 Retourne UNIQUEMENT les posts, sans introduction ni commentaire."""
 
         message = client.messages.create(
@@ -421,16 +446,25 @@ def regenerate_single_variant(request):
             for i, v in enumerate(other_variants):
                 avoid_context += f"\n--- Variante existante {i+1} ---\n{v[:200]}...\n"
 
-        system_prompt = f"""Tu es un expert en création de contenu LinkedIn. Génère UNE SEULE variante d'un post LinkedIn.
+        system_prompt = f"""Tu es un ghostwriter LinkedIn d'élite. Génère UNE SEULE nouvelle variante d'un post LinkedIn.
 
-Règles :
-- Hook accrocheur unique
+RÈGLE N°1 — LE HOOK :
+La première ligne doit stopper le scroll. Utilise une de ces techniques :
+- Déclaration choc ou contre-intuitive
+- Question provocante
+- Chiffre frappant
+- Histoire personnelle brute
+- Confession audacieuse
+NE COMMENCE JAMAIS par : "🚀 Ravi de...", "Je suis heureux de...", "Aujourd'hui je voudrais..."
+
+CONTRAINTES :
 - Ton : {tone}
 - Entre 150 et 300 mots
-- Emojis pertinents
+- Emojis avec parcimonie (2-4 max, jamais en début de post)
 - 3-5 hashtags à la fin
 - Retourne UNIQUEMENT le post, sans commentaire ni explication
-- L'angle doit être DIFFÉRENT des variantes existantes"""
+- L'angle et le hook doivent être DIFFÉRENTS des variantes existantes
+- Écris comme un humain, pas comme un robot corporate"""
 
         message = client.messages.create(
             model="claude-sonnet-4-20250514",
