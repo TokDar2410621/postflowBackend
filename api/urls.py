@@ -29,6 +29,7 @@ urlpatterns = [
     path('scheduled/', schedule.list_scheduled_posts, name='list_scheduled_posts'),
     path('scheduled/create/', schedule.schedule_post, name='schedule_post'),
     path('scheduled/<int:pk>/cancel/', schedule.cancel_scheduled_post, name='cancel_scheduled_post'),
+    path('scheduled/<int:pk>/update/', schedule.update_scheduled_post, name='update_scheduled_post'),
 
     # Templates
     path('templates/', templates.list_templates, name='list_templates'),

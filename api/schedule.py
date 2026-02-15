@@ -122,6 +122,66 @@ def cancel_scheduled_post(request, pk):
     return Response({'success': True, 'message': 'Post programmé annulé'})
 
 
+@api_view(['PUT'])
+def update_scheduled_post(request, pk):
+    """Modifier le contenu et/ou la date d'un post programmé"""
+    try:
+        if request.user.is_authenticated:
+            post = ScheduledPost.objects.get(pk=pk, user=request.user)
+        else:
+            post = ScheduledPost.objects.get(pk=pk, user__isnull=True)
+    except ScheduledPost.DoesNotExist:
+        return Response(
+            {'error': 'Post programmé non trouvé'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    if post.status != 'pending':
+        return Response(
+            {'error': 'Seuls les posts en attente peuvent être modifiés'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    content = request.data.get('content')
+    scheduled_at_str = request.data.get('scheduled_at')
+
+    if content is not None:
+        if not content.strip():
+            return Response(
+                {'error': 'Le contenu ne peut pas être vide'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        post.content = content
+
+    if scheduled_at_str is not None:
+        try:
+            scheduled_at = datetime.fromisoformat(scheduled_at_str.replace('Z', '+00:00'))
+            if timezone.is_naive(scheduled_at):
+                scheduled_at = timezone.make_aware(scheduled_at)
+        except ValueError:
+            return Response(
+                {'error': 'Format de date invalide'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if scheduled_at <= timezone.now():
+            return Response(
+                {'error': 'La date de programmation doit être dans le futur'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        post.scheduled_at = scheduled_at
+
+    post.save()
+
+    return Response({
+        'id': post.id,
+        'content': post.content,
+        'scheduled_at': post.scheduled_at.isoformat(),
+        'status': post.status,
+        'message': 'Post modifié avec succès'
+    })
+
+
 def publish_scheduled_posts():
     """Publish scheduled posts whose time has arrived.
 
