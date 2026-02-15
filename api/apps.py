@@ -9,9 +9,13 @@ class ApiConfig(AppConfig):
         import os
         import sys
 
-        # En dev (runserver), ne démarrer que dans le process enfant (reloader)
-        is_runserver = 'runserver' in sys.argv
-        if is_runserver and os.environ.get('RUN_MAIN') != 'true':
+        # Only start scheduler for local dev (runserver).
+        # In production (gunicorn), scheduler is started via post_fork hook.
+        if 'runserver' not in sys.argv:
+            return
+
+        # Avoid double-start from runserver's reloader
+        if os.environ.get('RUN_MAIN') != 'true':
             return
 
         try:
@@ -19,4 +23,4 @@ class ApiConfig(AppConfig):
             scheduler.start()
         except Exception as e:
             import logging
-            logging.getLogger(__name__).warning(f'Scheduler non démarré: {e}')
+            logging.getLogger(__name__).warning(f'Scheduler not started: {e}')

@@ -22,6 +22,16 @@ def on_starting(server):
     server.log.info("Ready to start workers.")
 
 
+def post_fork(server, worker):
+    """Start the scheduler only in the FIRST worker to avoid duplicates."""
+    if worker.age == 1:
+        server.log.info(f"Starting scheduler in worker {worker.pid}...")
+        import django
+        django.setup()
+        from api import scheduler
+        scheduler.start()
+
+
 port = os.environ.get("PORT", "8080")
 bind = f"0.0.0.0:{port}"
 workers = 3

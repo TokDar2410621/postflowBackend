@@ -1,5 +1,7 @@
+import logging
 from datetime import datetime, timedelta
 
+from django.db import transaction
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
@@ -9,6 +11,8 @@ from rest_framework.response import Response
 from .models import ScheduledPost, LinkedInAccount
 from .linkedin import upload_image_to_linkedin, LINKEDIN_UGC_POSTS_URL
 import requests
+
+logger = logging.getLogger(__name__)
 
 
 @api_view(['GET'])
@@ -61,7 +65,6 @@ def schedule_post(request):
         )
 
     try:
-        # Parse la date ISO
         scheduled_at = datetime.fromisoformat(scheduled_at_str.replace('Z', '+00:00'))
         if timezone.is_naive(scheduled_at):
             scheduled_at = timezone.make_aware(scheduled_at)
@@ -120,71 +123,92 @@ def cancel_scheduled_post(request, pk):
 
 
 def publish_scheduled_posts():
-    """Publie les posts programmés dont l'heure est arrivée"""
+    """Publish scheduled posts whose time has arrived.
+
+    Uses select_for_update(skip_locked=True) to prevent race conditions
+    when multiple workers run this job simultaneously.
+    """
     now = timezone.now()
-    pending_posts = ScheduledPost.objects.filter(
-        status='pending',
-        scheduled_at__lte=now
-    )
+    published_count = 0
 
-    for post in pending_posts:
-        try:
-            # Trouver le compte LinkedIn de l'utilisateur
-            if post.user:
-                account = LinkedInAccount.objects.filter(user=post.user).first()
-            else:
-                account = LinkedInAccount.objects.filter(user__isnull=True).first()
+    # Process one post at a time with row-level locking
+    while True:
+        with transaction.atomic():
+            post = (
+                ScheduledPost.objects
+                .select_for_update(skip_locked=True)
+                .filter(status='pending', scheduled_at__lte=now)
+                .first()
+            )
 
-            if not account:
-                post.status = 'failed'
-                post.error_message = 'Aucun compte LinkedIn connecté'
-                post.save()
-                continue
+            if post is None:
+                break
 
-            if account.is_expired:
-                post.status = 'failed'
-                post.error_message = 'Token LinkedIn expiré'
-                post.save()
-                continue
+            try:
+                # Find user's LinkedIn account
+                if post.user:
+                    account = LinkedInAccount.objects.filter(user=post.user).first()
+                else:
+                    account = LinkedInAccount.objects.filter(user__isnull=True).first()
 
-            # Publier sur LinkedIn
-            headers = {
-                'Authorization': f'Bearer {account.access_token}',
-                'Content-Type': 'application/json',
-                'X-Restli-Protocol-Version': '2.0.0',
-            }
+                if not account:
+                    post.status = 'failed'
+                    post.error_message = 'Aucun compte LinkedIn connecté'
+                    post.save()
+                    logger.warning(f'Scheduled post {post.id}: no LinkedIn account')
+                    continue
 
-            post_data = {
-                'author': f'urn:li:person:{account.linkedin_id}',
-                'lifecycleState': 'PUBLISHED',
-                'specificContent': {
-                    'com.linkedin.ugc.ShareContent': {
-                        'shareCommentary': {
-                            'text': post.content
-                        },
-                        'shareMediaCategory': 'NONE'
-                    }
-                },
-                'visibility': {
-                    'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC'
+                if account.is_expired:
+                    post.status = 'failed'
+                    post.error_message = 'Token LinkedIn expiré'
+                    post.save()
+                    logger.warning(f'Scheduled post {post.id}: token expired')
+                    continue
+
+                # Publish to LinkedIn
+                headers = {
+                    'Authorization': f'Bearer {account.access_token}',
+                    'Content-Type': 'application/json',
+                    'X-Restli-Protocol-Version': '2.0.0',
                 }
-            }
 
-            response = requests.post(LINKEDIN_UGC_POSTS_URL, json=post_data, headers=headers)
+                post_data = {
+                    'author': f'urn:li:person:{account.linkedin_id}',
+                    'lifecycleState': 'PUBLISHED',
+                    'specificContent': {
+                        'com.linkedin.ugc.ShareContent': {
+                            'shareCommentary': {
+                                'text': post.content
+                            },
+                            'shareMediaCategory': 'NONE'
+                        }
+                    },
+                    'visibility': {
+                        'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC'
+                    }
+                }
 
-            if response.status_code in [200, 201]:
-                post.status = 'published'
-                post.published_at = timezone.now()
-                post.save()
-            else:
-                error_msg = response.json().get('message', 'Erreur inconnue')
+                response = requests.post(LINKEDIN_UGC_POSTS_URL, json=post_data, headers=headers)
+
+                if response.status_code in [200, 201]:
+                    post.status = 'published'
+                    post.published_at = timezone.now()
+                    post.save()
+                    published_count += 1
+                    logger.info(f'Scheduled post {post.id} published successfully')
+                else:
+                    error_msg = response.json().get('message', 'Unknown error')
+                    post.status = 'failed'
+                    post.error_message = f'Erreur LinkedIn: {error_msg}'
+                    post.save()
+                    logger.error(f'Scheduled post {post.id} failed: {error_msg}')
+
+            except Exception as e:
                 post.status = 'failed'
-                post.error_message = f'Erreur LinkedIn: {error_msg}'
+                post.error_message = str(e)
                 post.save()
+                logger.exception(f'Scheduled post {post.id} exception: {e}')
 
-        except Exception as e:
-            post.status = 'failed'
-            post.error_message = str(e)
-            post.save()
-
-    return pending_posts.count()
+    if published_count > 0:
+        logger.info(f'publish_scheduled_posts: {published_count} published')
+    return published_count
