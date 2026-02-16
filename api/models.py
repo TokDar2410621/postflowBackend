@@ -138,3 +138,53 @@ class PublishedPost(models.Model):
         if self.views == 0:
             return 0
         return round(((self.likes + self.comments + self.shares) / self.views) * 100, 2)
+
+
+class UserProfile(models.Model):
+    """Profil utilisateur avec contexte pour la génération IA"""
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
+    role = models.CharField(max_length=200, blank=True, verbose_name="Rôle / Poste")
+    industry = models.CharField(max_length=200, blank=True, verbose_name="Secteur d'activité")
+    expertise = models.TextField(blank=True, verbose_name="Domaines d'expertise")
+    target_audience = models.TextField(blank=True, verbose_name="Audience cible")
+    writing_style = models.TextField(blank=True, verbose_name="Style d'écriture")
+    bio = models.TextField(blank=True, verbose_name="Bio / Description")
+    example_posts = models.TextField(blank=True, verbose_name="Exemples de posts")
+    additional_context = models.TextField(blank=True, verbose_name="Contexte additionnel")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Profil utilisateur"
+        verbose_name_plural = "Profils utilisateurs"
+
+    def __str__(self):
+        return f"Profil de {self.user.username}"
+
+    @property
+    def has_context(self):
+        return any([self.role, self.industry, self.expertise,
+                    self.target_audience, self.writing_style, self.bio])
+
+    def build_prompt_context(self):
+        if not self.has_context:
+            return ""
+        parts = ["CONTEXTE DE L'AUTEUR :"]
+        if self.role:
+            parts.append(f"- Rôle : {self.role}")
+        if self.industry:
+            parts.append(f"- Secteur : {self.industry}")
+        if self.expertise:
+            parts.append(f"- Expertise : {self.expertise}")
+        if self.target_audience:
+            parts.append(f"- Audience cible : {self.target_audience}")
+        if self.writing_style:
+            parts.append(f"- Style d'écriture : {self.writing_style}")
+        if self.bio:
+            parts.append(f"- Bio : {self.bio}")
+        if self.example_posts:
+            parts.append(f"\nEXEMPLES DE POSTS QUE L'AUTEUR APPRÉCIE :\n{self.example_posts}")
+        if self.additional_context:
+            parts.append(f"\nCONTEXTE ADDITIONNEL :\n{self.additional_context}")
+        parts.append("\nAdapte le post à ce profil. Utilise un vocabulaire et des exemples cohérents avec son secteur et son audience.")
+        return "\n".join(parts)

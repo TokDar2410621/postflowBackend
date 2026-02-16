@@ -10,8 +10,19 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.response import Response
 import anthropic
 
-from .models import GeneratedPost, PublishedPost, PromptTemplate
+from .models import GeneratedPost, PublishedPost, PromptTemplate, UserProfile
 from .serializers import GeneratePostSerializer, GeneratedPostSerializer
+
+
+def get_user_context(request):
+    """Récupère le contexte du profil utilisateur pour injection dans le prompt"""
+    if not request.user.is_authenticated:
+        return ""
+    try:
+        profile = UserProfile.objects.get(user=request.user)
+        return profile.build_prompt_context()
+    except UserProfile.DoesNotExist:
+        return ""
 
 
 def extract_hashtags(content):
@@ -200,6 +211,10 @@ CONTRAINTES :
 - Retourne UNIQUEMENT le post, sans commentaire ni explication
 - Écris comme un humain, pas comme un robot corporate"""
 
+        user_context = get_user_context(request)
+        if user_context:
+            system_prompt += f"\n\n{user_context}"
+
         message = client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=1024,
@@ -333,6 +348,10 @@ IMPORTANT : Sépare les variantes par "---VARIANTE---" (exactement ce séparateu
 Ne numérote pas, commence directement par le contenu.
 Retourne UNIQUEMENT les posts, sans introduction ni commentaire."""
 
+        user_context = get_user_context(request)
+        if user_context:
+            system_prompt += f"\n\n{user_context}"
+
         message = client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=4096,
@@ -465,6 +484,10 @@ CONTRAINTES :
 - Retourne UNIQUEMENT le post, sans commentaire ni explication
 - L'angle et le hook doivent être DIFFÉRENTS des variantes existantes
 - Écris comme un humain, pas comme un robot corporate"""
+
+        user_context = get_user_context(request)
+        if user_context:
+            system_prompt += f"\n\n{user_context}"
 
         message = client.messages.create(
             model="claude-sonnet-4-20250514",

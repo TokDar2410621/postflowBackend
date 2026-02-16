@@ -5,6 +5,7 @@ from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth.models import User
 from django.contrib.auth import authenticate
+from .models import UserProfile
 
 
 @api_view(['POST'])
@@ -44,6 +45,7 @@ def register(request):
         email=email,
         password=password
     )
+    UserProfile.objects.create(user=user)
 
     # Générer les tokens JWT
     refresh = RefreshToken.for_user(user)
@@ -98,13 +100,24 @@ def login(request):
     })
 
 
-@api_view(['GET'])
+@api_view(['GET', 'PUT'])
 @permission_classes([IsAuthenticated])
 def profile(request):
-    """Récupère le profil de l'utilisateur connecté"""
+    """Récupère ou met à jour le profil de l'utilisateur connecté"""
     user = request.user
+    user_profile, _ = UserProfile.objects.get_or_create(user=user)
 
-    # Vérifier si l'utilisateur a un compte LinkedIn connecté
+    if request.method == 'PUT':
+        kb = request.data.get('knowledge_base', {})
+        fields = ['role', 'industry', 'expertise', 'target_audience',
+                  'writing_style', 'bio', 'example_posts', 'additional_context']
+        for field in fields:
+            if field in kb:
+                setattr(user_profile, field, kb[field])
+        user_profile.save()
+        return Response({'message': 'Profil mis à jour avec succès', 'knowledge_base': _serialize_profile(user_profile)})
+
+    # GET
     linkedin_connected = hasattr(user, 'linkedin_account') and user.linkedin_account is not None
     linkedin_name = user.linkedin_account.name if linkedin_connected else None
 
@@ -114,7 +127,22 @@ def profile(request):
         'email': user.email,
         'linkedin_connected': linkedin_connected,
         'linkedin_name': linkedin_name,
+        'knowledge_base': _serialize_profile(user_profile),
     })
+
+
+def _serialize_profile(profile):
+    return {
+        'role': profile.role,
+        'industry': profile.industry,
+        'expertise': profile.expertise,
+        'target_audience': profile.target_audience,
+        'writing_style': profile.writing_style,
+        'bio': profile.bio,
+        'example_posts': profile.example_posts,
+        'additional_context': profile.additional_context,
+        'updated_at': profile.updated_at.isoformat(),
+    }
 
 
 @api_view(['POST'])
