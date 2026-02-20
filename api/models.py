@@ -62,6 +62,8 @@ class ScheduledPost(models.Model):
     scheduled_at = models.DateTimeField(verbose_name="Date de publication prévue")
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     error_message = models.TextField(blank=True, verbose_name="Message d'erreur")
+    images_data = models.JSONField(default=list, blank=True, verbose_name="Images en base64",
+                                    help_text="Liste de {data: base64, mime_type: str}")
     published_at = models.DateTimeField(null=True, blank=True, verbose_name="Date de publication effective")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

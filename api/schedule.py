@@ -1,10 +1,13 @@
+import base64
+import io
 import logging
 from datetime import datetime, timedelta
 
 from django.db import transaction
 from django.utils import timezone
 from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, parser_classes
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -41,16 +44,20 @@ def list_scheduled_posts(request):
         'error_message': post.error_message,
         'published_at': post.published_at.isoformat() if post.published_at else None,
         'created_at': post.created_at.isoformat(),
+        'has_images': bool(post.images_data),
+        'images_count': len(post.images_data) if post.images_data else 0,
     } for post in posts]
 
     return Response(data)
 
 
 @api_view(['POST'])
+@parser_classes([MultiPartParser, FormParser, JSONParser])
 def schedule_post(request):
-    """Programmer un post pour publication ultérieure"""
+    """Programmer un post pour publication ultérieure (avec images optionnelles)"""
     content = request.data.get('content')
     scheduled_at_str = request.data.get('scheduled_at')
+    images = request.FILES.getlist('images')
 
     if not content:
         return Response(
@@ -80,10 +87,19 @@ def schedule_post(request):
             status=status.HTTP_400_BAD_REQUEST
         )
 
+    # Encoder les images en base64 pour le stockage
+    images_data = []
+    for img in images[:5]:  # Max 5 images
+        img_bytes = img.read()
+        img_b64 = base64.b64encode(img_bytes).decode('utf-8')
+        mime_type = getattr(img, 'content_type', 'image/jpeg')
+        images_data.append({'data': img_b64, 'mime_type': mime_type})
+
     post = ScheduledPost.objects.create(
         user=request.user if request.user.is_authenticated else None,
         content=content,
         scheduled_at=scheduled_at,
+        images_data=images_data,
         status='pending'
     )
 
@@ -92,6 +108,7 @@ def schedule_post(request):
         'content': post.content,
         'scheduled_at': post.scheduled_at.isoformat(),
         'status': post.status,
+        'has_images': len(images_data) > 0,
         'message': 'Post programmé avec succès'
     }, status=status.HTTP_201_CREATED)
 
@@ -225,6 +242,19 @@ def publish_scheduled_posts():
                     logger.warning(f'Scheduled post {post.id}: token expired')
                     continue
 
+                # Upload images if any
+                image_urns = []
+                if post.images_data:
+                    for img_info in post.images_data:
+                        try:
+                            img_bytes = base64.b64decode(img_info['data'])
+                            img_file = io.BytesIO(img_bytes)
+                            img_file.content_type = img_info.get('mime_type', 'image/jpeg')
+                            image_urn = upload_image_to_linkedin(account, img_file)
+                            image_urns.append(image_urn)
+                        except Exception as e:
+                            logger.warning(f'Scheduled post {post.id}: image upload failed: {e}')
+
                 # Publish to LinkedIn
                 headers = {
                     'Authorization': f'Bearer {account.access_token}',
@@ -240,13 +270,19 @@ def publish_scheduled_posts():
                             'shareCommentary': {
                                 'text': post.content
                             },
-                            'shareMediaCategory': 'NONE'
+                            'shareMediaCategory': 'IMAGE' if image_urns else 'NONE'
                         }
                     },
                     'visibility': {
                         'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC'
                     }
                 }
+
+                # Attach images if uploaded
+                if image_urns:
+                    post_data['specificContent']['com.linkedin.ugc.ShareContent']['media'] = [
+                        {'status': 'READY', 'media': urn} for urn in image_urns
+                    ]
 
                 response = requests.post(LINKEDIN_UGC_POSTS_URL, json=post_data, headers=headers)
 
