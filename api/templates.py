@@ -1,17 +1,16 @@
 from rest_framework import status
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from .models import PromptTemplate
 
 
 @api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def list_templates(request):
     """Liste les templates de l'utilisateur"""
-    if request.user.is_authenticated:
-        templates = PromptTemplate.objects.filter(user=request.user)
-    else:
-        templates = PromptTemplate.objects.filter(user__isnull=True)
+    templates = PromptTemplate.objects.filter(user=request.user)
 
     data = [{
         'id': t.id,
@@ -29,6 +28,7 @@ def list_templates(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def create_template(request):
     """Crée un nouveau template"""
     name = request.data.get('name', '').strip()
@@ -49,17 +49,12 @@ def create_template(request):
     if default_tone not in valid_tones:
         default_tone = 'professionnel'
 
-    user = request.user if request.user.is_authenticated else None
-
     # Si c'est un template par défaut, désactiver les autres
     if is_default:
-        if user:
-            PromptTemplate.objects.filter(user=user, is_default=True).update(is_default=False)
-        else:
-            PromptTemplate.objects.filter(user__isnull=True, is_default=True).update(is_default=False)
+        PromptTemplate.objects.filter(user=request.user, is_default=True).update(is_default=False)
 
     template = PromptTemplate.objects.create(
-        user=user,
+        user=request.user,
         name=name,
         description=description,
         default_tone=default_tone,
@@ -82,13 +77,11 @@ def create_template(request):
 
 
 @api_view(['PUT'])
+@permission_classes([IsAuthenticated])
 def update_template(request, pk):
     """Met à jour un template"""
     try:
-        if request.user.is_authenticated:
-            template = PromptTemplate.objects.get(pk=pk, user=request.user)
-        else:
-            template = PromptTemplate.objects.get(pk=pk, user__isnull=True)
+        template = PromptTemplate.objects.get(pk=pk, user=request.user)
     except PromptTemplate.DoesNotExist:
         return Response(
             {'error': 'Template non trouvé'},
@@ -110,12 +103,7 @@ def update_template(request, pk):
 
     is_default = request.data.get('is_default', template.is_default)
     if is_default and not template.is_default:
-        # Désactiver les autres templates par défaut
-        user = request.user if request.user.is_authenticated else None
-        if user:
-            PromptTemplate.objects.filter(user=user, is_default=True).update(is_default=False)
-        else:
-            PromptTemplate.objects.filter(user__isnull=True, is_default=True).update(is_default=False)
+        PromptTemplate.objects.filter(user=request.user, is_default=True).update(is_default=False)
     template.is_default = is_default
 
     template.save()
@@ -134,13 +122,11 @@ def update_template(request, pk):
 
 
 @api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
 def delete_template(request, pk):
     """Supprime un template"""
     try:
-        if request.user.is_authenticated:
-            template = PromptTemplate.objects.get(pk=pk, user=request.user)
-        else:
-            template = PromptTemplate.objects.get(pk=pk, user__isnull=True)
+        template = PromptTemplate.objects.get(pk=pk, user=request.user)
     except PromptTemplate.DoesNotExist:
         return Response(
             {'error': 'Template non trouvé'},

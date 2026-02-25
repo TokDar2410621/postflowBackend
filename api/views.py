@@ -5,7 +5,8 @@ from datetime import timedelta
 from django.conf import settings
 from django.utils import timezone
 from rest_framework import status
-from rest_framework.decorators import api_view, parser_classes
+from rest_framework.decorators import api_view, parser_classes, permission_classes
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.response import Response
 import anthropic
@@ -115,6 +116,7 @@ Réponds en français."""
 
 
 @api_view(['POST'])
+@permission_classes([IsAuthenticated])
 @parser_classes([MultiPartParser, FormParser, JSONParser])
 def generate_post(request):
     """Génère un post LinkedIn à partir d'un résumé et/ou d'images"""
@@ -231,7 +233,7 @@ CONTRAINTES :
 
         # Sauvegarder en base de données (contenu complet avec hashtags)
         post = GeneratedPost.objects.create(
-            user=request.user if request.user.is_authenticated else None,
+            user=request.user,
             summary=summary if summary.strip() else (image_context[:500] if image_context else ''),
             tone=tone,
             generated_content=generated_content
@@ -262,6 +264,7 @@ CONTRAINTES :
 
 
 @api_view(['POST'])
+@permission_classes([IsAuthenticated])
 @parser_classes([MultiPartParser, FormParser, JSONParser])
 def generate_variants(request):
     """Génère plusieurs variantes d'un post LinkedIn"""
@@ -377,7 +380,7 @@ Retourne UNIQUEMENT les posts, sans introduction ni commentaire."""
         post = None
         if raw_variants:
             post = GeneratedPost.objects.create(
-                user=request.user if request.user.is_authenticated else None,
+                user=request.user,
                 summary=summary if summary.strip() else (image_context[:500] if image_context else ''),
                 tone=tone,
                 generated_content=raw_variants[0]
@@ -431,6 +434,7 @@ Retourne UNIQUEMENT les posts, sans introduction ni commentaire."""
 
 
 @api_view(['POST'])
+@permission_classes([IsAuthenticated])
 @parser_classes([JSONParser])
 def regenerate_single_variant(request):
     """Régénère une seule variante d'un post LinkedIn"""
@@ -514,11 +518,9 @@ CONTRAINTES :
 
 
 @api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def list_posts(request):
-    if request.user.is_authenticated:
-        posts = GeneratedPost.objects.filter(user=request.user)
-    else:
-        posts = GeneratedPost.objects.filter(user__isnull=True)
+    posts = GeneratedPost.objects.filter(user=request.user)
 
     # Filter by tone
     tone = request.query_params.get('tone')
@@ -542,12 +544,10 @@ def list_posts(request):
 
 
 @api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def list_published_posts(request):
     """Liste les posts publiés avec stats, avec filtres optionnels"""
-    if request.user.is_authenticated:
-        posts = PublishedPost.objects.filter(user=request.user)
-    else:
-        posts = PublishedPost.objects.filter(user__isnull=True)
+    posts = PublishedPost.objects.filter(user=request.user)
 
     tone = request.query_params.get('tone')
     if tone:
@@ -582,9 +582,10 @@ def list_published_posts(request):
 
 
 @api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def get_post(request, pk):
     try:
-        post = GeneratedPost.objects.get(pk=pk)
+        post = GeneratedPost.objects.get(pk=pk, user=request.user)
         serializer = GeneratedPostSerializer(post)
         return Response(serializer.data)
     except GeneratedPost.DoesNotExist:
@@ -595,6 +596,7 @@ def get_post(request, pk):
 
 
 @api_view(['POST'])
+@permission_classes([IsAuthenticated])
 @parser_classes([JSONParser])
 def suggest_hashtags(request):
     """Suggère des hashtags pertinents pour un post donné"""

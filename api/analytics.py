@@ -11,12 +11,10 @@ from .models import PublishedPost
 
 
 @api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def get_analytics_summary(request):
     """Récupère un résumé des statistiques"""
-    if request.user.is_authenticated:
-        posts = PublishedPost.objects.filter(user=request.user)
-    else:
-        posts = PublishedPost.objects.filter(user__isnull=True)
+    posts = PublishedPost.objects.filter(user=request.user)
 
     # Stats globales
     totals = posts.aggregate(
@@ -77,12 +75,10 @@ def get_analytics_summary(request):
 
 
 @api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def get_analytics_chart(request):
     """Récupère les données pour les graphiques"""
-    if request.user.is_authenticated:
-        posts = PublishedPost.objects.filter(user=request.user)
-    else:
-        posts = PublishedPost.objects.filter(user__isnull=True)
+    posts = PublishedPost.objects.filter(user=request.user)
 
     # Période (par défaut 30 jours)
     days = int(request.query_params.get('days', 30))
@@ -114,12 +110,10 @@ def get_analytics_chart(request):
 
 
 @api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def get_top_posts(request):
     """Récupère les posts les plus performants"""
-    if request.user.is_authenticated:
-        posts = PublishedPost.objects.filter(user=request.user)
-    else:
-        posts = PublishedPost.objects.filter(user__isnull=True)
+    posts = PublishedPost.objects.filter(user=request.user)
 
     # Critère de tri (défaut: engagement total)
     sort_by = request.query_params.get('sort', 'engagement')
@@ -161,13 +155,11 @@ def get_top_posts(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def update_post_stats(request, pk):
     """Met à jour manuellement les stats d'un post (pour simulation/test)"""
     try:
-        if request.user.is_authenticated:
-            post = PublishedPost.objects.get(pk=pk, user=request.user)
-        else:
-            post = PublishedPost.objects.get(pk=pk, user__isnull=True)
+        post = PublishedPost.objects.get(pk=pk, user=request.user)
 
         post.views = request.data.get('views', post.views)
         post.likes = request.data.get('likes', post.likes)

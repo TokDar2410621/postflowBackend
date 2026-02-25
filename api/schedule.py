@@ -19,12 +19,10 @@ logger = logging.getLogger(__name__)
 
 
 @api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def list_scheduled_posts(request):
     """Liste les posts programmés de l'utilisateur"""
-    if request.user.is_authenticated:
-        posts = ScheduledPost.objects.filter(user=request.user)
-    else:
-        posts = ScheduledPost.objects.filter(user__isnull=True)
+    posts = ScheduledPost.objects.filter(user=request.user)
 
     date_range = request.query_params.get('date_range')
     if date_range == '7':
@@ -52,6 +50,7 @@ def list_scheduled_posts(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAuthenticated])
 @parser_classes([MultiPartParser, FormParser, JSONParser])
 def schedule_post(request):
     """Programmer un post pour publication ultérieure (avec images optionnelles)"""
@@ -96,7 +95,7 @@ def schedule_post(request):
         images_data.append({'data': img_b64, 'mime_type': mime_type})
 
     post = ScheduledPost.objects.create(
-        user=request.user if request.user.is_authenticated else None,
+        user=request.user,
         content=content,
         scheduled_at=scheduled_at,
         images_data=images_data,
@@ -114,13 +113,11 @@ def schedule_post(request):
 
 
 @api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
 def cancel_scheduled_post(request, pk):
     """Annuler un post programmé"""
     try:
-        if request.user.is_authenticated:
-            post = ScheduledPost.objects.get(pk=pk, user=request.user)
-        else:
-            post = ScheduledPost.objects.get(pk=pk, user__isnull=True)
+        post = ScheduledPost.objects.get(pk=pk, user=request.user)
     except ScheduledPost.DoesNotExist:
         return Response(
             {'error': 'Post programmé non trouvé'},
@@ -140,13 +137,11 @@ def cancel_scheduled_post(request, pk):
 
 
 @api_view(['PUT'])
+@permission_classes([IsAuthenticated])
 def update_scheduled_post(request, pk):
     """Modifier le contenu et/ou la date d'un post programmé"""
     try:
-        if request.user.is_authenticated:
-            post = ScheduledPost.objects.get(pk=pk, user=request.user)
-        else:
-            post = ScheduledPost.objects.get(pk=pk, user__isnull=True)
+        post = ScheduledPost.objects.get(pk=pk, user=request.user)
     except ScheduledPost.DoesNotExist:
         return Response(
             {'error': 'Post programmé non trouvé'},
