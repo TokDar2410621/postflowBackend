@@ -6,7 +6,7 @@ from django.conf import settings
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import api_view, parser_classes, permission_classes
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.response import Response
 import anthropic
@@ -133,7 +133,7 @@ Réponds en français."""
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 @parser_classes([MultiPartParser, FormParser, JSONParser])
 def generate_post(request):
     """Génère un post LinkedIn à partir d'un résumé et/ou d'images"""
@@ -254,8 +254,10 @@ CONTRAINTES :
         body, hashtags = extract_hashtags(generated_content)
 
         # Sauvegarder en base de données (contenu complet avec hashtags)
+        session_key = request.data.get('session_key', '')
         post = GeneratedPost.objects.create(
-            user=request.user,
+            user=request.user if request.user.is_authenticated else None,
+            session_key=session_key if not request.user.is_authenticated else '',
             summary=summary if summary.strip() else (image_context[:500] if image_context else ''),
             tone=tone,
             generated_content=generated_content
@@ -286,7 +288,7 @@ CONTRAINTES :
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 @parser_classes([MultiPartParser, FormParser, JSONParser])
 def generate_variants(request):
     """Génère plusieurs variantes d'un post LinkedIn"""
@@ -404,10 +406,12 @@ Retourne UNIQUEMENT les posts, sans introduction ni commentaire."""
             variants_hashtags.append(tags)
 
         # Sauvegarder la première variante comme post principal
+        session_key = request.data.get('session_key', '')
         post = None
         if raw_variants:
             post = GeneratedPost.objects.create(
-                user=request.user,
+                user=request.user if request.user.is_authenticated else None,
+                session_key=session_key if not request.user.is_authenticated else '',
                 summary=summary if summary.strip() else (image_context[:500] if image_context else ''),
                 tone=tone,
                 generated_content=raw_variants[0]
@@ -461,7 +465,7 @@ Retourne UNIQUEMENT les posts, sans introduction ni commentaire."""
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 @parser_classes([JSONParser])
 def regenerate_single_variant(request):
     """Régénère une seule variante d'un post LinkedIn"""
@@ -545,9 +549,15 @@ CONTRAINTES :
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 def list_posts(request):
-    posts = GeneratedPost.objects.filter(user=request.user)
+    if request.user.is_authenticated:
+        posts = GeneratedPost.objects.filter(user=request.user)
+    else:
+        session_key = request.query_params.get('session_key', '')
+        if not session_key:
+            return Response([])
+        posts = GeneratedPost.objects.filter(session_key=session_key, user__isnull=True)
 
     # Filter by tone
     tone = request.query_params.get('tone')
@@ -609,10 +619,14 @@ def list_published_posts(request):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 def get_post(request, pk):
     try:
-        post = GeneratedPost.objects.get(pk=pk, user=request.user)
+        if request.user.is_authenticated:
+            post = GeneratedPost.objects.get(pk=pk, user=request.user)
+        else:
+            session_key = request.query_params.get('session_key', '')
+            post = GeneratedPost.objects.get(pk=pk, session_key=session_key, user__isnull=True)
         serializer = GeneratedPostSerializer(post)
         return Response(serializer.data)
     except GeneratedPost.DoesNotExist:
@@ -623,7 +637,7 @@ def get_post(request, pk):
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 @parser_classes([JSONParser])
 def suggest_hashtags(request):
     """Suggère des hashtags pertinents pour un post donné"""

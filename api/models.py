@@ -35,6 +35,7 @@ class GeneratedPost(models.Model):
     ]
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='generated_posts', null=True, blank=True)
+    session_key = models.CharField(max_length=64, blank=True, db_index=True, verbose_name="Clé de session anonyme")
     summary = models.TextField(verbose_name="Résumé original")
     tone = models.CharField(max_length=20, choices=TONE_CHOICES, default='professionnel')
     generated_content = models.TextField(verbose_name="Contenu généré")

@@ -15,6 +15,7 @@ urlpatterns = [
     path('auth/logout/', auth.logout, name='logout'),
     path('auth/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('auth/profile/', auth.profile, name='profile'),
+    path('auth/claim-session/', auth.claim_session, name='claim_session'),
 
     # Posts
     path('generate/', views.generate_post, name='generate_post'),

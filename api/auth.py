@@ -8,7 +8,7 @@ from django.contrib.auth.models import User
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
-from .models import UserProfile
+from .models import UserProfile, GeneratedPost
 
 
 class LoginRateThrottle(AnonRateThrottle):
@@ -168,3 +168,18 @@ def logout(request):
         return Response({'success': True, 'message': 'Déconnexion réussie'})
     except Exception:
         return Response({'success': True, 'message': 'Déconnexion réussie'})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def claim_session(request):
+    """Rattache les posts anonymes (session_key) au compte de l'utilisateur connecté"""
+    session_key = request.data.get('session_key', '').strip()
+    if not session_key or len(session_key) > 64:
+        return Response({'claimed': 0})
+
+    claimed = GeneratedPost.objects.filter(
+        session_key=session_key, user__isnull=True
+    ).update(user=request.user, session_key='')
+
+    return Response({'claimed': claimed})

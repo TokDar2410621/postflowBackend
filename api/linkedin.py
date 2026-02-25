@@ -132,22 +132,28 @@ def linkedin_callback(request):
             existing_account.name = name
             existing_account.save()
         else:
-            # Nouvel utilisateur → créer un compte Django
-            username = name.replace(' ', '_').lower() if name else f'linkedin_{linkedin_id}'
-            # Assurer l'unicité du username
-            base_username = username
-            counter = 1
-            while User.objects.filter(username=username).exists():
-                username = f'{base_username}_{counter}'
-                counter += 1
+            # Chercher un User existant avec le même email (fusion de comptes)
+            user = None
+            if email:
+                user = User.objects.filter(email=email).first()
 
-            user = User.objects.create_user(
-                username=username,
-                email=email,
-                first_name=name.split(' ')[0] if name else '',
-                last_name=' '.join(name.split(' ')[1:]) if name and ' ' in name else '',
-            )
+            if not user:
+                # Aucun compte existant → créer un nouveau User
+                username = name.replace(' ', '_').lower() if name else f'linkedin_{linkedin_id}'
+                base_username = username
+                counter = 1
+                while User.objects.filter(username=username).exists():
+                    username = f'{base_username}_{counter}'
+                    counter += 1
 
+                user = User.objects.create_user(
+                    username=username,
+                    email=email,
+                    first_name=name.split(' ')[0] if name else '',
+                    last_name=' '.join(name.split(' ')[1:]) if name and ' ' in name else '',
+                )
+
+            # Lier le compte LinkedIn au User (existant ou nouveau)
             LinkedInAccount.objects.update_or_create(
                 linkedin_id=linkedin_id,
                 defaults={
