@@ -14,6 +14,23 @@ import anthropic
 from .models import GeneratedPost, PublishedPost, PromptTemplate, UserProfile
 from .serializers import GeneratePostSerializer, GeneratedPostSerializer
 
+MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10 MB
+ALLOWED_IMAGE_TYPES = {'image/jpeg', 'image/png', 'image/gif', 'image/webp'}
+MAX_IMAGES = 5
+
+
+def validate_uploaded_images(images):
+    """Valide les images uploadées (taille et type MIME). Retourne un message d'erreur ou None."""
+    if len(images) > MAX_IMAGES:
+        return f'Maximum {MAX_IMAGES} images autorisées'
+    for img in images:
+        content_type = getattr(img, 'content_type', '')
+        if content_type not in ALLOWED_IMAGE_TYPES:
+            return f'Type de fichier non autorisé: {content_type}. Types acceptés: JPEG, PNG, GIF, WebP'
+        if img.size > MAX_IMAGE_SIZE:
+            return f'Image trop volumineuse ({img.size // (1024*1024)}MB). Maximum: {MAX_IMAGE_SIZE // (1024*1024)}MB'
+    return None
+
 
 def get_user_context(request):
     """Récupère le contexte du profil utilisateur pour injection dans le prompt"""
@@ -125,6 +142,11 @@ def generate_post(request):
     summary = request.data.get('summary', '')
     tone = request.data.get('tone', 'professionnel')
     images = request.FILES.getlist('images')
+
+    if images:
+        img_error = validate_uploaded_images(images)
+        if img_error:
+            return Response({'error': img_error}, status=status.HTTP_400_BAD_REQUEST)
 
     # Template support
     template_id = request.data.get('template_id')
@@ -273,6 +295,11 @@ def generate_variants(request):
     tone = request.data.get('tone', 'professionnel')
     images = request.FILES.getlist('images')
     num_variants = min(int(request.data.get('num_variants', 3)), 5)
+
+    if images:
+        img_error = validate_uploaded_images(images)
+        if img_error:
+            return Response({'error': img_error}, status=status.HTTP_400_BAD_REQUEST)
 
     # Template support
     template_id = request.data.get('template_id')

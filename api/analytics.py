@@ -152,29 +152,3 @@ def get_top_posts(request):
         })
 
     return Response(result)
-
-
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def update_post_stats(request, pk):
-    """Met à jour manuellement les stats d'un post (pour simulation/test)"""
-    try:
-        post = PublishedPost.objects.get(pk=pk, user=request.user)
-
-        post.views = request.data.get('views', post.views)
-        post.likes = request.data.get('likes', post.likes)
-        post.comments = request.data.get('comments', post.comments)
-        post.shares = request.data.get('shares', post.shares)
-        post.stats_updated_at = timezone.now()
-        post.save()
-
-        return Response({
-            'id': post.id,
-            'views': post.views,
-            'likes': post.likes,
-            'comments': post.comments,
-            'shares': post.shares,
-            'engagement_rate': post.engagement_rate
-        })
-    except PublishedPost.DoesNotExist:
-        return Response({'error': 'Post non trouvé'}, status=status.HTTP_404_NOT_FOUND)

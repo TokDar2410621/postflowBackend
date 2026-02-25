@@ -39,6 +39,7 @@ urlpatterns = [
 
     # LinkedIn OAuth
     path('auth/linkedin/', linkedin.linkedin_auth, name='linkedin_auth'),
+    path('auth/linkedin/init/', linkedin.linkedin_init_auth, name='linkedin_init_auth'),
     path('auth/linkedin/callback', linkedin.linkedin_callback, name='linkedin_callback'),
     path('linkedin/status/', linkedin.linkedin_status, name='linkedin_status'),
     path('linkedin/publish/', linkedin.linkedin_publish, name='linkedin_publish'),
@@ -53,6 +54,5 @@ urlpatterns = [
     path('analytics/', analytics.get_analytics_summary, name='analytics_summary'),
     path('analytics/chart/', analytics.get_analytics_chart, name='analytics_chart'),
     path('analytics/top/', analytics.get_top_posts, name='analytics_top'),
-    path('analytics/<int:pk>/update/', analytics.update_post_stats, name='update_post_stats'),
     path('analytics/refresh/', linkedin.refresh_stats, name='refresh_stats'),
 ]

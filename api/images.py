@@ -4,12 +4,14 @@ import requests
 import anthropic
 from django.conf import settings
 from rest_framework import status
-from rest_framework.decorators import api_view, parser_classes
+from rest_framework.decorators import api_view, parser_classes, permission_classes
 from rest_framework.parsers import JSONParser
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 
 @api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def search_images(request):
     """Recherche d'images sur Pexels (proxy pour garder la clé API côté serveur)"""
     query = request.GET.get('query', '').strip()
@@ -89,6 +91,7 @@ def search_images(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAuthenticated])
 @parser_classes([JSONParser])
 def suggest_image_keywords(request):
     """Suggère des mots-clés de recherche d'image basés sur le contenu du post"""
@@ -128,6 +131,7 @@ def suggest_image_keywords(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAuthenticated])
 @parser_classes([JSONParser])
 def generate_image(request):
     """Génère une image avec Gemini à partir d'un prompt"""

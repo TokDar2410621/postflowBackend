@@ -58,6 +58,12 @@ def schedule_post(request):
     scheduled_at_str = request.data.get('scheduled_at')
     images = request.FILES.getlist('images')
 
+    if images:
+        from .views import validate_uploaded_images
+        img_error = validate_uploaded_images(images)
+        if img_error:
+            return Response({'error': img_error}, status=status.HTTP_400_BAD_REQUEST)
+
     if not content:
         return Response(
             {'error': 'Le contenu du post est requis'},

@@ -1,15 +1,27 @@
 from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import AnonRateThrottle
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth.models import User
 from django.contrib.auth import authenticate
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from .models import UserProfile
+
+
+class LoginRateThrottle(AnonRateThrottle):
+    scope = 'login'
+
+
+class RegisterRateThrottle(AnonRateThrottle):
+    scope = 'register'
 
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@throttle_classes([RegisterRateThrottle])
 def register(request):
     """Inscription d'un nouvel utilisateur"""
     username = request.data.get('username', '').strip()
@@ -22,21 +34,19 @@ def register(request):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    if len(password) < 6:
+    # Validation du mot de passe via les validateurs Django
+    try:
+        validate_password(password)
+    except DjangoValidationError as e:
         return Response(
-            {'error': 'Le mot de passe doit contenir au moins 6 caractères'},
+            {'error': e.messages[0]},
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    if User.objects.filter(username=username).exists():
+    # Message générique pour éviter l'énumération d'utilisateurs
+    if User.objects.filter(username=username).exists() or (email and User.objects.filter(email=email).exists()):
         return Response(
-            {'error': 'Ce nom d\'utilisateur existe déjà'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
-
-    if email and User.objects.filter(email=email).exists():
-        return Response(
-            {'error': 'Cette adresse email est déjà utilisée'},
+            {'error': 'Impossible de créer ce compte. Veuillez vérifier vos informations.'},
             status=status.HTTP_400_BAD_REQUEST
         )
 
@@ -65,6 +75,7 @@ def register(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@throttle_classes([LoginRateThrottle])
 def login(request):
     """Connexion d'un utilisateur"""
     username = request.data.get('username', '').strip()

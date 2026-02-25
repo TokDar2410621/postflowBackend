@@ -1,16 +1,19 @@
 import json
 import base64
+import secrets
 import requests
 from datetime import timedelta
 from urllib.parse import urlencode
 
 from django.conf import settings
 from django.contrib.auth.models import User
+from django.core.cache import cache
 from django.shortcuts import redirect
 from django.utils import timezone
 from rest_framework import status
-from rest_framework.decorators import api_view, parser_classes
+from rest_framework.decorators import api_view, parser_classes, permission_classes
 from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -26,31 +29,40 @@ LINKEDIN_ASSETS_URL = "https://api.linkedin.com/v2/assets"
 
 @api_view(['GET'])
 def linkedin_auth(request):
-    """Redirige vers la page d'autorisation LinkedIn"""
-    action = request.GET.get('action', 'connect')  # 'login' ou 'connect'
-    token = request.GET.get('token', '')
-
-    # Decode JWT to get user_id for the connect flow
-    user_id = ''
-    if token:
-        try:
-            from rest_framework_simplejwt.tokens import AccessToken
-            access = AccessToken(token)
-            user_id = str(access['user_id'])
-        except Exception:
-            pass
-
-    state = f'{action}:{user_id}' if user_id else action
+    """Redirige vers la page d'autorisation LinkedIn (flow login uniquement)"""
+    state_token = secrets.token_urlsafe(32)
+    cache.set(f'oauth_state:{state_token}', {'action': 'login', 'user_id': ''}, timeout=600)
 
     params = {
         'response_type': 'code',
         'client_id': settings.LINKEDIN_CLIENT_ID,
         'redirect_uri': settings.LINKEDIN_REDIRECT_URI,
         'scope': 'openid profile email w_member_social',
-        'state': state,
+        'state': state_token,
     }
     auth_url = f"{LINKEDIN_AUTH_URL}?{urlencode(params)}"
     return redirect(auth_url)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def linkedin_init_auth(request):
+    """Initie le flow OAuth LinkedIn connect (token via Authorization header, pas en URL)"""
+    action = request.data.get('action', 'connect')
+    user_id = str(request.user.id)
+
+    state_token = secrets.token_urlsafe(32)
+    cache.set(f'oauth_state:{state_token}', {'action': action, 'user_id': user_id}, timeout=600)
+
+    params = {
+        'response_type': 'code',
+        'client_id': settings.LINKEDIN_CLIENT_ID,
+        'redirect_uri': settings.LINKEDIN_REDIRECT_URI,
+        'scope': 'openid profile email w_member_social',
+        'state': state_token,
+    }
+    auth_url = f"{LINKEDIN_AUTH_URL}?{urlencode(params)}"
+    return Response({'auth_url': auth_url})
 
 
 @api_view(['GET'])
@@ -58,12 +70,17 @@ def linkedin_callback(request):
     """Callback OAuth - échange le code contre un token"""
     code = request.GET.get('code')
     error = request.GET.get('error')
-    raw_state = request.GET.get('state', 'connect')
+    raw_state = request.GET.get('state', '')
 
-    # Parse state: "action:user_id" or just "action"
-    parts = raw_state.split(':', 1)
-    state = parts[0]
-    state_user_id = int(parts[1]) if len(parts) > 1 and parts[1] else None
+    # Valider le state token via le cache (one-time use)
+    state_data = cache.get(f'oauth_state:{raw_state}')
+    if not state_data:
+        return redirect(f"{settings.FRONTEND_URL}?linkedin_error=invalid_state")
+    cache.delete(f'oauth_state:{raw_state}')
+
+    state = state_data.get('action', 'connect')
+    state_user_id_str = state_data.get('user_id', '')
+    state_user_id = int(state_user_id_str) if state_user_id_str else None
 
     if error:
         return redirect(f"{settings.FRONTEND_URL}?linkedin_error={error}")
@@ -180,12 +197,10 @@ def linkedin_callback(request):
 
 
 @api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def linkedin_status(request):
     """Vérifie si un compte LinkedIn est connecté"""
-    if request.user.is_authenticated:
-        account = LinkedInAccount.objects.filter(user=request.user).first()
-    else:
-        account = LinkedInAccount.objects.filter(user__isnull=True).first()
+    account = LinkedInAccount.objects.filter(user=request.user).first()
 
     if not account:
         return Response({'connected': False})
@@ -254,11 +269,18 @@ def upload_image_to_linkedin(account, image_file):
 
 
 @api_view(['POST'])
+@permission_classes([IsAuthenticated])
 @parser_classes([MultiPartParser, FormParser])
 def linkedin_publish(request):
     """Publie un post sur LinkedIn avec images optionnelles"""
     content = request.data.get('content')
     images = request.FILES.getlist('images')
+
+    if images:
+        from .views import validate_uploaded_images
+        img_error = validate_uploaded_images(images)
+        if img_error:
+            return Response({'error': img_error}, status=status.HTTP_400_BAD_REQUEST)
 
     if not content:
         return Response(
@@ -266,10 +288,7 @@ def linkedin_publish(request):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    if request.user.is_authenticated:
-        account = LinkedInAccount.objects.filter(user=request.user).first()
-    else:
-        account = LinkedInAccount.objects.filter(user__isnull=True).first()
+    account = LinkedInAccount.objects.filter(user=request.user).first()
 
     if not account:
         return Response(
@@ -285,7 +304,7 @@ def linkedin_publish(request):
 
     # Upload des images si présentes
     image_urns = []
-    for image in images[:20]:  # LinkedIn limite à 20 images max
+    for image in images[:5]:
         try:
             image_urn = upload_image_to_linkedin(account, image)
             image_urns.append(image_urn)
@@ -341,7 +360,7 @@ def linkedin_publish(request):
         # Sauvegarder dans PublishedPost pour les analytics
         tone = request.data.get('tone', '')
         PublishedPost.objects.create(
-            user=request.user if request.user.is_authenticated else None,
+            user=request.user,
             linkedin_post_id=linkedin_post_id,
             content=content,
             has_images=len(image_urns) > 0,
@@ -361,12 +380,10 @@ def linkedin_publish(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def linkedin_disconnect(request):
     """Déconnecte le compte LinkedIn"""
-    if request.user.is_authenticated:
-        LinkedInAccount.objects.filter(user=request.user).delete()
-    else:
-        LinkedInAccount.objects.filter(user__isnull=True).delete()
+    LinkedInAccount.objects.filter(user=request.user).delete()
     return Response({'success': True, 'message': 'Compte LinkedIn déconnecté'})
 
 
@@ -479,16 +496,13 @@ def update_all_post_stats():
 
 
 @api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def refresh_stats(request):
     """Déclenche une MAJ immédiate des stats pour l'utilisateur courant"""
     import time
 
-    if request.user.is_authenticated:
-        account = LinkedInAccount.objects.filter(user=request.user).first()
-        posts = PublishedPost.objects.filter(user=request.user, linkedin_post_id__gt='')
-    else:
-        account = LinkedInAccount.objects.filter(user__isnull=True).first()
-        posts = PublishedPost.objects.filter(user__isnull=True, linkedin_post_id__gt='')
+    account = LinkedInAccount.objects.filter(user=request.user).first()
+    posts = PublishedPost.objects.filter(user=request.user, linkedin_post_id__gt='')
 
     if not account:
         return Response({'error': 'Aucun compte LinkedIn connecté'}, status=status.HTTP_401_UNAUTHORIZED)
