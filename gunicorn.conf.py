@@ -14,6 +14,12 @@ def on_starting(server):
         server.log.error("Migrations failed!")
         sys.exit(1)
 
+    server.log.info("Creating cache table...")
+    subprocess.run(
+        [sys.executable, "manage.py", "createcachetable"],
+        capture_output=False,
+    )
+
     server.log.info("Collecting static files...")
     subprocess.run(
         [sys.executable, "manage.py", "collectstatic", "--noinput"],
