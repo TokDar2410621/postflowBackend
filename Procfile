@@ -1,1 +1,1 @@
-web: python manage.py migrate --noinput && python manage.py createcachetable --database default 2>/dev/null; gunicorn config.wsgi:application
+web: python manage.py migrate --noinput && python manage.py createcachetable 2>/dev/null || true && gunicorn config.wsgi:application
