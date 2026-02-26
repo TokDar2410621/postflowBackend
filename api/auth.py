@@ -1,14 +1,24 @@
+import logging
+
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle
 from rest_framework_simplejwt.tokens import RefreshToken
+from django.conf import settings
 from django.contrib.auth.models import User
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
+from django.contrib.auth.tokens import default_token_generator
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.mail import send_mail
+from django.template.loader import render_to_string
+from django.utils.encoding import force_bytes, force_str
+from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from .models import UserProfile, GeneratedPost
+
+logger = logging.getLogger('api')
 
 
 class LoginRateThrottle(AnonRateThrottle):
@@ -28,9 +38,9 @@ def register(request):
     email = request.data.get('email', '').strip()
     password = request.data.get('password', '')
 
-    if not username or not password:
+    if not username or not password or not email:
         return Response(
-            {'error': 'Nom d\'utilisateur et mot de passe requis'},
+            {'error': 'Nom d\'utilisateur, email et mot de passe requis'},
             status=status.HTTP_400_BAD_REQUEST
         )
 
@@ -77,15 +87,25 @@ def register(request):
 @permission_classes([AllowAny])
 @throttle_classes([LoginRateThrottle])
 def login(request):
-    """Connexion d'un utilisateur"""
-    username = request.data.get('username', '').strip()
+    """Connexion d'un utilisateur (par username ou email)"""
+    identifier = request.data.get('username', '').strip()
     password = request.data.get('password', '')
 
-    if not username or not password:
+    if not identifier or not password:
         return Response(
-            {'error': 'Nom d\'utilisateur et mot de passe requis'},
+            {'error': 'Identifiant et mot de passe requis'},
             status=status.HTTP_400_BAD_REQUEST
         )
+
+    # Si l'identifiant contient un @, chercher le username correspondant à cet email
+    if '@' in identifier:
+        try:
+            user_obj = User.objects.get(email=identifier)
+            username = user_obj.username
+        except User.DoesNotExist:
+            username = identifier  # Laisse échouer normalement
+    else:
+        username = identifier
 
     user = authenticate(username=username, password=password)
 
@@ -183,3 +203,103 @@ def claim_session(request):
     ).update(user=request.user, session_key='')
 
     return Response({'claimed': claimed})
+
+
+class PasswordResetThrottle(AnonRateThrottle):
+    scope = 'password_reset'
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+@throttle_classes([PasswordResetThrottle])
+def password_reset_request(request):
+    """Envoie un email de réinitialisation de mot de passe"""
+    email = request.data.get('email', '').strip().lower()
+
+    # Toujours répondre 200 pour ne pas révéler si l'email existe
+    success_msg = {'message': 'Si un compte existe avec cet email, un lien de réinitialisation a été envoyé.'}
+
+    if not email:
+        return Response(success_msg)
+
+    try:
+        user = User.objects.get(email=email)
+    except User.DoesNotExist:
+        return Response(success_msg)
+
+    # Générer le token et le uid encodé
+    token = default_token_generator.make_token(user)
+    uid = urlsafe_base64_encode(force_bytes(user.pk))
+
+    frontend_url = settings.FRONTEND_URL.rstrip('/')
+    reset_link = f"{frontend_url}/reset-password?uid={uid}&token={token}"
+
+    try:
+        send_mail(
+            subject='PostFlow - Réinitialisation de votre mot de passe',
+            message=f'Bonjour {user.username},\n\n'
+                    f'Vous avez demandé la réinitialisation de votre mot de passe.\n\n'
+                    f'Cliquez sur ce lien pour définir un nouveau mot de passe :\n'
+                    f'{reset_link}\n\n'
+                    f'Ce lien expire dans 24 heures.\n\n'
+                    f'Si vous n\'avez pas demandé cette réinitialisation, ignorez cet email.\n\n'
+                    f'L\'équipe PostFlow',
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[user.email],
+            fail_silently=False,
+        )
+    except Exception as e:
+        logger.error(f"Erreur envoi email reset: {e}")
+        return Response(
+            {'error': 'Erreur lors de l\'envoi de l\'email. Réessayez plus tard.'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    return Response(success_msg)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def password_reset_confirm(request):
+    """Confirme la réinitialisation du mot de passe avec uid + token"""
+    uid = request.data.get('uid', '')
+    token = request.data.get('token', '')
+    new_password = request.data.get('password', '')
+
+    if not uid or not token or not new_password:
+        return Response(
+            {'error': 'Données manquantes'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # Décoder le uid
+    try:
+        user_id = force_str(urlsafe_base64_decode(uid))
+        user = User.objects.get(pk=user_id)
+    except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+        return Response(
+            {'error': 'Lien de réinitialisation invalide'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # Vérifier le token
+    if not default_token_generator.check_token(user, token):
+        return Response(
+            {'error': 'Lien expiré ou déjà utilisé'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # Valider le nouveau mot de passe
+    try:
+        validate_password(new_password, user=user)
+    except DjangoValidationError as e:
+        return Response(
+            {'error': e.messages[0]},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # Changer le mot de passe
+    user.set_password(new_password)
+    user.save()
+
+    return Response({'message': 'Mot de passe réinitialisé avec succès'})

@@ -16,12 +16,15 @@ urlpatterns = [
     path('auth/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('auth/profile/', auth.profile, name='profile'),
     path('auth/claim-session/', auth.claim_session, name='claim_session'),
+    path('auth/password-reset/', auth.password_reset_request, name='password_reset_request'),
+    path('auth/password-reset/confirm/', auth.password_reset_confirm, name='password_reset_confirm'),
 
     # Posts
     path('generate/', views.generate_post, name='generate_post'),
     path('generate/variants/', views.generate_variants, name='generate_variants'),
     path('generate/variants/regenerate/', views.regenerate_single_variant, name='regenerate_single_variant'),
     path('generate/hashtags/', views.suggest_hashtags, name='suggest_hashtags'),
+    path('generate/hook/', views.regenerate_hook, name='regenerate_hook'),
     path('posts/published/', views.list_published_posts, name='list_published_posts'),
     path('posts/', views.list_posts, name='list_posts'),
     path('posts/<int:pk>/', views.get_post, name='get_post'),

@@ -689,3 +689,92 @@ Choisis des hashtags populaires sur LinkedIn, en français et en anglais.""",
             {'error': str(e)},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+@parser_classes([JSONParser])
+def regenerate_hook(request):
+    """Régénère uniquement le hook (première ligne) d'un post LinkedIn"""
+    content = request.data.get('content', '')
+    tone = request.data.get('tone', 'professionnel')
+    current_hook = request.data.get('current_hook', '')
+
+    if not content.strip():
+        return Response(
+            {'error': 'Le contenu du post est requis'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    valid_tones = ['professionnel', 'inspirant', 'storytelling', 'educatif', 'humoristique']
+    if tone not in valid_tones:
+        tone = 'professionnel'
+
+    if not settings.ANTHROPIC_API_KEY:
+        return Response(
+            {'error': 'ANTHROPIC_API_KEY is not configured'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+    try:
+        client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+
+        system_prompt = f"""Tu es un ghostwriter LinkedIn d'élite, spécialiste des hooks (phrases d'accroche).
+
+Tu dois générer UNE SEULE nouvelle phrase d'accroche pour un post LinkedIn existant.
+
+Le hook doit :
+- Stopper le scroll immédiatement
+- Être UNE SEULE LIGNE (courte et percutante, max 15 mots)
+- Créer de la curiosité ou de l'émotion
+- Être DIFFÉRENT du hook actuel
+
+Techniques à utiliser (varie à chaque fois) :
+- Déclaration choc : "J'ai refusé une augmentation de 30%."
+- Question provocante : "Et si tout ce qu'on vous a appris était faux ?"
+- Chiffre frappant : "97% des startups échouent. La mienne aussi."
+- Histoire personnelle : "Il y a 2 ans, j'ai été viré."
+- Confession : "Je vais vous dire un truc que personne n'ose dire."
+- Pattern interrupt : "Arrêtez de chercher votre passion."
+- Exclusion : "Ce post n'est pas pour tout le monde."
+
+NE COMMENCE JAMAIS par un emoji, "Ravi de...", "Je suis heureux de...", "Aujourd'hui je voudrais..."
+
+Ton : {tone}
+
+Retourne UNIQUEMENT la phrase d'accroche, rien d'autre. Pas de guillemets."""
+
+        user_context = get_user_context(request)
+        if user_context:
+            system_prompt += f"\n\n{user_context}"
+
+        avoid_text = ""
+        if current_hook:
+            avoid_text = f"\n\nHook actuel (génère quelque chose de DIFFÉRENT) : {current_hook}"
+
+        message = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=100,
+            system=system_prompt,
+            messages=[
+                {"role": "user", "content": f"Voici le post LinkedIn (sans le hook) :\n\n{content}{avoid_text}"}
+            ]
+        )
+
+        hook = message.content[0].text.strip()
+        # Nettoyer : enlever les guillemets si l'IA en met
+        for char in ['"', "'", '\u201c', '\u201d', '\u00ab', '\u00bb']:
+            hook = hook.strip(char)
+
+        return Response({'hook': hook})
+
+    except anthropic.RateLimitError:
+        return Response(
+            {'error': 'Trop de requêtes'},
+            status=status.HTTP_429_TOO_MANY_REQUESTS
+        )
+    except Exception as e:
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
