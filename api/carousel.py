@@ -29,6 +29,45 @@ def validate_slides(slides):
     return True
 
 
+TEMPLATE_INSTRUCTIONS = {
+    'step-by-step': """FORMAT: ETAPE PAR ETAPE
+- La slide titre utilise le format "Comment [faire X] en [N] etapes" ou "N etapes pour [resultat]"
+- Chaque slide content = 1 etape numerotee dans le titre (ex: "Etape 1 : Definir son objectif")
+- Les bullets detaillent l'etape avec des actions concretes
+- Progression logique du debut a la fin
+- La slide CTA invite a sauvegarder ou partager""",
+
+    'storytelling': """FORMAT: STORYTELLING / TRANSFORMATION
+- La slide titre pose un probleme relatable ou une situation de depart forte
+- Slides 2-3 : le contexte, la difficulte, le moment bas
+- Slides 4-5 : le tournant, la prise de conscience, le changement
+- Slides 6-7 : les resultats concrets, les lecons apprises
+- Utilise un "body" plutot que des bullets pour un style narratif
+- La slide CTA demande aux lecteurs de partager leur propre experience""",
+
+    'data': """FORMAT: DATA & CHIFFRES
+- La slide titre annonce des chiffres choc ou une tendance forte
+- Chaque slide content met en avant 1 statistique cle dans le titre (ex: "78% des managers...")
+- Les bullets expliquent le contexte et les implications
+- Inclure une slide quote avec une source credible
+- La slide CTA invite a commenter avec ses propres chiffres""",
+
+    'quick-wins': """FORMAT: QUICK WINS / ASTUCES RAPIDES
+- La slide titre promet des benefices immediats (ex: "5 astuces pour doubler votre productivite")
+- Chaque slide content = 1 astuce actionnable immediatement
+- Titres de slides tres courts et directs
+- Bullets avec des exemples concrets et applicables aujourd'hui
+- La slide CTA invite a enregistrer le post et a tester""",
+
+    'myths': """FORMAT: MYTHES VS REALITE
+- La slide titre annonce qu'on va casser des idees recues (ex: "5 mythes sur le management")
+- Chaque slide content a un titre qui commence par le mythe (ex: "Mythe : Il faut travailler 60h/semaine")
+- Le body ou les bullets revelent la realite avec des arguments
+- Ton un peu provocateur pour generer des reactions
+- La slide CTA invite a debattre en commentaires""",
+}
+
+
 @api_view(['POST'])
 @permission_classes([AllowAny])
 @parser_classes([JSONParser])
@@ -36,6 +75,7 @@ def generate_carousel(request):
     topic = request.data.get('topic', '').strip()
     tone = request.data.get('tone', 'professionnel')
     num_slides = request.data.get('num_slides', 7)
+    template = request.data.get('template', '').strip()
 
     if not topic:
         return Response({'error': 'Le sujet est requis'}, status=status.HTTP_400_BAD_REQUEST)
@@ -44,22 +84,31 @@ def generate_carousel(request):
 
     user_context = get_user_context(request)
 
+    template_block = ""
+    if template and template in TEMPLATE_INSTRUCTIONS:
+        template_block = f"\n\n{TEMPLATE_INSTRUCTIONS[template]}\n"
+
     system_prompt = f"""Tu es un expert en creation de carousels LinkedIn viraux.
 Tu generes le contenu structure d'un carousel au format JSON strict.
 
-REGLES IMPORTANTES:
+REGLES DE DESIGN LINKEDIN (TRES IMPORTANT):
+- Les carousels viraux ont 10-20 mots MAX par slide
+- Les titres sont COURTS et PERCUTANTS (5-8 mots max)
+- Les bullets sont ultra-concis (max 12 mots chacun)
+- La slide 1 (titre) doit STOPPER LE SCROLL avec un hook puissant
+- La derniere slide (CTA) doit donner une instruction CLAIRE et SPECIFIQUE
+
+REGLES TECHNIQUES:
 - Retourne UNIQUEMENT du JSON valide, sans markdown, sans backticks, sans commentaire
-- La premiere slide est TOUJOURS de type "title" avec un titre accrocheur (hook puissant)
+- La premiere slide est TOUJOURS de type "title" avec un hook percutant
 - La derniere slide est TOUJOURS de type "cta" (call to action)
 - Les slides intermediaires sont de type "content" ou "quote"
 - Chaque slide "content" a soit des "bullets" (2-4 points concis), soit un "body" (paragraphe court)
 - Maximum 1 slide "quote" par carousel
 - Le contenu doit etre en francais
-- Les titres sont courts et percutants (5-8 mots max)
-- Les bullets sont concis (1 ligne chacun, max 15 mots)
 - Cree un fil narratif logique entre les slides
 - Adapte le ton: {tone}
-
+{template_block}
 SCHEMA JSON A RESPECTER:
 {{
   "slides": [
