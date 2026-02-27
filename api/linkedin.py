@@ -31,6 +31,7 @@ LINKEDIN_UGC_POSTS_URL = "https://api.linkedin.com/v2/ugcPosts"
 LINKEDIN_ASSETS_URL = "https://api.linkedin.com/v2/assets"
 LINKEDIN_DOCUMENTS_URL = "https://api.linkedin.com/rest/documents"
 LINKEDIN_POSTS_URL = "https://api.linkedin.com/rest/posts"
+LINKEDIN_API_VERSION = "202506"
 
 
 @api_view(['GET'])
@@ -123,6 +124,25 @@ def linkedin_callback(request):
     linkedin_id = userinfo.get('sub')
     name = userinfo.get('name', '')
     email = userinfo.get('email', '')
+    picture = userinfo.get('picture', '')
+
+    # Fetch headline from LinkedIn REST API
+    headline = ''
+    try:
+        me_headers = {
+            'Authorization': f'Bearer {access_token}',
+            'LinkedIn-Version': LINKEDIN_API_VERSION,
+        }
+        me_response = requests.get('https://api.linkedin.com/rest/me', headers=me_headers)
+        if me_response.status_code == 200:
+            me_data = me_response.json()
+            headline = me_data.get('headline', {})
+            if isinstance(headline, dict):
+                # Localized headline
+                localized = headline.get('localized', {})
+                headline = next(iter(localized.values()), '') if localized else ''
+    except Exception as e:
+        logger.warning(f"Could not fetch LinkedIn headline: {e}")
 
     expires_at = timezone.now() + timedelta(seconds=expires_in)
 
@@ -136,6 +156,8 @@ def linkedin_callback(request):
             existing_account.access_token = access_token
             existing_account.expires_at = expires_at
             existing_account.name = name
+            existing_account.profile_picture_url = picture
+            existing_account.headline = headline
             existing_account.save()
         else:
             # Chercher un User existant avec le même email (fusion de comptes)
@@ -165,6 +187,8 @@ def linkedin_callback(request):
                 defaults={
                     'user': user,
                     'name': name,
+                    'profile_picture_url': picture,
+                    'headline': headline,
                     'access_token': access_token,
                     'expires_at': expires_at,
                 }
@@ -201,6 +225,8 @@ def linkedin_callback(request):
             defaults={
                 'user': connect_user,
                 'name': name,
+                'profile_picture_url': picture,
+                'headline': headline,
                 'access_token': access_token,
                 'expires_at': expires_at,
             }
@@ -227,7 +253,9 @@ def linkedin_status(request):
     return Response({
         'connected': True,
         'name': account.name,
-        'linkedin_id': account.linkedin_id
+        'linkedin_id': account.linkedin_id,
+        'profile_picture_url': account.profile_picture_url or '',
+        'headline': account.headline or '',
     })
 
 

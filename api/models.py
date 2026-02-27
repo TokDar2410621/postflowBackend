@@ -7,6 +7,8 @@ class LinkedInAccount(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='linkedin_account', null=True, blank=True)
     linkedin_id = models.CharField(max_length=100, unique=True)
     name = models.CharField(max_length=255, blank=True)
+    profile_picture_url = models.URLField(max_length=500, blank=True, verbose_name="Photo de profil")
+    headline = models.CharField(max_length=500, blank=True, verbose_name="Titre/Headline LinkedIn")
     access_token = models.TextField()
     expires_at = models.DateTimeField()
     created_at = models.DateTimeField(auto_now_add=True)

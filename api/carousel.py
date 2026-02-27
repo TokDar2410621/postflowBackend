@@ -177,3 +177,87 @@ SCHEMA JSON A RESPECTER:
             {'error': 'Erreur interne'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+@parser_classes([JSONParser])
+def generate_carousel_caption(request):
+    slides = request.data.get('slides', [])
+    topic = request.data.get('topic', '').strip()
+    tone = request.data.get('tone', 'professionnel')
+
+    if not slides or not isinstance(slides, list):
+        return Response(
+            {'error': 'Les slides sont requises'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # Build a text summary of the carousel content
+    slides_text = []
+    for i, slide in enumerate(slides):
+        parts = []
+        if slide.get('title'):
+            parts.append(slide['title'])
+        if slide.get('subtitle'):
+            parts.append(slide['subtitle'])
+        if slide.get('body'):
+            parts.append(slide['body'])
+        if slide.get('bullets'):
+            parts.append(' / '.join(slide['bullets']))
+        if slide.get('quote'):
+            parts.append(f'"{slide["quote"]}"')
+        if slide.get('cta_text'):
+            parts.append(slide['cta_text'])
+        slides_text.append(f"Slide {i + 1}: {' - '.join(parts)}")
+
+    carousel_summary = '\n'.join(slides_text)
+
+    user_context = get_user_context(request)
+
+    system_prompt = f"""Tu es un expert LinkedIn qui ecrit des legendes (captions) virales pour accompagner des carousels.
+
+REGLES:
+- La legende doit donner envie de swiper le carousel
+- Commence par un HOOK percutant (1ere ligne qui stoppe le scroll)
+- Ajoute 2-3 phrases qui resument la valeur du carousel
+- Termine par un CTA (question ou invitation a commenter/partager)
+- Ajoute une ligne vide puis 3-5 hashtags pertinents
+- Ton: {tone}
+- Longueur ideale: 800-1200 caracteres
+- Utilise des emojis avec parcimonie (2-3 max)
+- Ecris en francais
+- N'utilise PAS de markdown (pas de ** ou ##)
+
+{user_context}"""
+
+    user_message = f"""Ecris une legende LinkedIn pour ce carousel sur le sujet "{topic}".
+
+Contenu du carousel:
+{carousel_summary}"""
+
+    try:
+        client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+        response = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1000,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_message}],
+        )
+
+        caption = response.content[0].text.strip()
+
+        return Response({'caption': caption})
+
+    except anthropic.APIError as e:
+        logger.error(f"Anthropic API error (caption): {e}")
+        return Response(
+            {'error': 'Erreur API IA. Reessayez.'},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+    except Exception as e:
+        logger.error(f"Caption generation error: {e}")
+        return Response(
+            {'error': 'Erreur interne'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
