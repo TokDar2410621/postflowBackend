@@ -7,6 +7,7 @@ from . import schedule
 from . import templates
 from . import analytics
 from . import images
+from . import carousel
 
 urlpatterns = [
     # Auth
@@ -53,6 +54,9 @@ urlpatterns = [
     path('images/search/', images.search_images, name='search_images'),
     path('images/keywords/', images.suggest_image_keywords, name='suggest_image_keywords'),
     path('images/generate/', images.generate_image, name='generate_image'),
+
+    # Carousel
+    path('carousel/generate/', carousel.generate_carousel, name='generate_carousel'),
 
     # Analytics
     path('analytics/', analytics.get_analytics_summary, name='analytics_summary'),
