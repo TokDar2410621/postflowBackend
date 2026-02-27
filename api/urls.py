@@ -8,6 +8,7 @@ from . import templates
 from . import analytics
 from . import images
 from . import carousel
+from . import infographic
 
 urlpatterns = [
     # Auth
@@ -59,6 +60,9 @@ urlpatterns = [
     # Carousel
     path('carousel/generate/', carousel.generate_carousel, name='generate_carousel'),
     path('carousel/generate-caption/', carousel.generate_carousel_caption, name='generate_carousel_caption'),
+
+    # Infographic
+    path('infographic/generate/', infographic.generate_infographic, name='generate_infographic'),
 
     # Analytics
     path('analytics/', analytics.get_analytics_summary, name='analytics_summary'),
