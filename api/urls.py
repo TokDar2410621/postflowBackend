@@ -48,6 +48,7 @@ urlpatterns = [
     path('auth/linkedin/callback', linkedin.linkedin_callback, name='linkedin_callback'),
     path('linkedin/status/', linkedin.linkedin_status, name='linkedin_status'),
     path('linkedin/publish/', linkedin.linkedin_publish, name='linkedin_publish'),
+    path('linkedin/publish/carousel/', linkedin.linkedin_publish_carousel, name='linkedin_publish_carousel'),
     path('linkedin/disconnect/', linkedin.linkedin_disconnect, name='linkedin_disconnect'),
 
     # Images (Pexels + Gemini)

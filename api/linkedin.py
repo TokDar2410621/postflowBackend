@@ -20,11 +20,17 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from .models import LinkedInAccount, PublishedPost
 
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 LINKEDIN_AUTH_URL = "https://www.linkedin.com/oauth/v2/authorization"
 LINKEDIN_TOKEN_URL = "https://www.linkedin.com/oauth/v2/accessToken"
 LINKEDIN_USERINFO_URL = "https://api.linkedin.com/v2/userinfo"
 LINKEDIN_UGC_POSTS_URL = "https://api.linkedin.com/v2/ugcPosts"
 LINKEDIN_ASSETS_URL = "https://api.linkedin.com/v2/assets"
+LINKEDIN_DOCUMENTS_URL = "https://api.linkedin.com/rest/documents"
+LINKEDIN_POSTS_URL = "https://api.linkedin.com/rest/posts"
 
 
 @api_view(['GET'])
@@ -542,3 +548,164 @@ def refresh_stats(request):
         'updated': updated,
         'message': f'{updated} post(s) mis à jour'
     })
+
+
+# --- Publication de carousels (documents PDF) ---
+
+def upload_document_to_linkedin(account, pdf_bytes):
+    """Upload un PDF vers LinkedIn via l'API Documents et retourne le document URN."""
+    headers = {
+        'Authorization': f'Bearer {account.access_token}',
+        'Content-Type': 'application/json',
+        'LinkedIn-Version': '202501',
+    }
+
+    # Étape 1: Initialiser l'upload
+    init_data = {
+        'initializeUploadRequest': {
+            'owner': f'urn:li:person:{account.linkedin_id}',
+        }
+    }
+
+    init_response = requests.post(
+        f'{LINKEDIN_DOCUMENTS_URL}?action=initializeUpload',
+        json=init_data,
+        headers=headers,
+        timeout=30,
+    )
+
+    if init_response.status_code not in [200, 201]:
+        logger.error(f"Document init upload failed: {init_response.status_code} {init_response.text}")
+        raise Exception(f"Erreur initialisation upload: {init_response.text}")
+
+    init_result = init_response.json()
+    upload_url = init_result['value']['uploadUrl']
+    document_urn = init_result['value']['document']
+
+    # Étape 2: Upload le PDF
+    upload_headers = {
+        'Authorization': f'Bearer {account.access_token}',
+        'Content-Type': 'application/pdf',
+    }
+
+    upload_response = requests.put(
+        upload_url,
+        data=pdf_bytes,
+        headers=upload_headers,
+        timeout=60,
+    )
+
+    if upload_response.status_code not in [200, 201]:
+        logger.error(f"Document upload failed: {upload_response.status_code} {upload_response.text}")
+        raise Exception(f"Erreur upload document: {upload_response.text}")
+
+    return document_urn
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@parser_classes([MultiPartParser, FormParser])
+def linkedin_publish_carousel(request):
+    """Publie un carousel (document PDF) sur LinkedIn."""
+    caption = request.data.get('caption', '')
+    pdf_file = request.FILES.get('pdf')
+
+    if not pdf_file:
+        return Response(
+            {'error': 'Le fichier PDF est requis'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # Vérifier le type et la taille
+    if pdf_file.content_type != 'application/pdf':
+        return Response(
+            {'error': 'Le fichier doit etre un PDF'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if pdf_file.size > 50 * 1024 * 1024:  # 50MB max LinkedIn
+        return Response(
+            {'error': 'Le PDF est trop volumineux (max 50MB)'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    account = LinkedInAccount.objects.filter(user=request.user).first()
+
+    if not account:
+        return Response(
+            {'error': 'Aucun compte LinkedIn connecte'},
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    if account.is_expired:
+        return Response(
+            {'error': 'Le token LinkedIn a expire, reconnectez-vous'},
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    # Upload du document
+    try:
+        pdf_bytes = pdf_file.read()
+        document_urn = upload_document_to_linkedin(account, pdf_bytes)
+    except Exception as e:
+        logger.error(f"Carousel upload error: {e}")
+        return Response(
+            {'error': f'Erreur upload: {str(e)}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    # Créer le post avec le document via Posts API
+    headers = {
+        'Authorization': f'Bearer {account.access_token}',
+        'Content-Type': 'application/json',
+        'LinkedIn-Version': '202501',
+    }
+
+    post_data = {
+        'author': f'urn:li:person:{account.linkedin_id}',
+        'commentary': caption,
+        'visibility': 'PUBLIC',
+        'distribution': {
+            'feedDistribution': 'MAIN_FEED',
+            'targetEntities': [],
+            'thirdPartyDistributionChannels': [],
+        },
+        'content': {
+            'media': {
+                'id': document_urn,
+                'title': caption[:100] if caption else 'Carousel',
+            }
+        },
+        'lifecycleState': 'PUBLISHED',
+    }
+
+    response = requests.post(
+        LINKEDIN_POSTS_URL,
+        json=post_data,
+        headers=headers,
+        timeout=30,
+    )
+
+    if response.status_code in [200, 201]:
+        # Extraire l'ID du post
+        linkedin_post_id = response.headers.get('x-restli-id', '')
+
+        PublishedPost.objects.create(
+            user=request.user,
+            linkedin_post_id=linkedin_post_id,
+            content=caption,
+            has_images=False,
+            tone='',
+        )
+
+        return Response({
+            'success': True,
+            'message': 'Carousel publie avec succes sur LinkedIn!',
+        })
+    else:
+        error_detail = response.text
+        logger.error(f"LinkedIn post creation failed: {response.status_code} {error_detail}")
+        return Response(
+            {'error': f'Erreur LinkedIn: {error_detail}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
