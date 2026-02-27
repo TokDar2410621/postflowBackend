@@ -557,7 +557,7 @@ def upload_document_to_linkedin(account, pdf_bytes):
     headers = {
         'Authorization': f'Bearer {account.access_token}',
         'Content-Type': 'application/json',
-        'LinkedIn-Version': '202501',
+        'LinkedIn-Version': LINKEDIN_API_VERSION,
     }
 
     # Étape 1: Initialiser l'upload
@@ -658,7 +658,7 @@ def linkedin_publish_carousel(request):
     headers = {
         'Authorization': f'Bearer {account.access_token}',
         'Content-Type': 'application/json',
-        'LinkedIn-Version': '202501',
+        'LinkedIn-Version': LINKEDIN_API_VERSION,
     }
 
     post_data = {
