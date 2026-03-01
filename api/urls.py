@@ -52,10 +52,11 @@ urlpatterns = [
     path('linkedin/publish/carousel/', linkedin.linkedin_publish_carousel, name='linkedin_publish_carousel'),
     path('linkedin/disconnect/', linkedin.linkedin_disconnect, name='linkedin_disconnect'),
 
-    # Images (Pexels + Gemini)
+    # Images (Pexels + Gemini + HuggingFace)
     path('images/search/', images.search_images, name='search_images'),
     path('images/keywords/', images.suggest_image_keywords, name='suggest_image_keywords'),
     path('images/generate/', images.generate_image, name='generate_image'),
+    path('images/generate-hf/', images.generate_image_hf, name='generate_image_hf'),
 
     # Carousel
     path('carousel/generate/', carousel.generate_carousel, name='generate_carousel'),

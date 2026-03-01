@@ -196,3 +196,74 @@ def generate_image(request):
             {'error': f'Erreur génération image: {error_msg}'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@parser_classes([JSONParser])
+def generate_image_hf(request):
+    """Génère une illustration via HuggingFace Inference API (FLUX.1-schnell)"""
+    prompt = request.data.get('prompt', '').strip()
+
+    if not prompt:
+        return Response(
+            {'error': 'Le prompt est requis'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    if not settings.HF_TOKEN:
+        return Response(
+            {'error': 'HF_TOKEN non configuré'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+    try:
+        full_prompt = (
+            "cartoon minimalist illustration, clean vector style, "
+            "no text no letters no words no watermark no typography: "
+            f"{prompt}"
+        )
+
+        resp = requests.post(
+            "https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell",
+            headers={"Authorization": f"Bearer {settings.HF_TOKEN}"},
+            json={"inputs": full_prompt, "parameters": {"width": 1024, "height": 1024}},
+            timeout=60,
+        )
+
+        if resp.status_code == 429:
+            return Response(
+                {'error': 'Limite de requêtes HuggingFace atteinte, réessayez plus tard'},
+                status=status.HTTP_429_TOO_MANY_REQUESTS
+            )
+
+        if resp.status_code == 503:
+            return Response(
+                {'error': 'Le modèle est en cours de chargement, réessayez dans quelques secondes'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+
+        if resp.status_code != 200:
+            return Response(
+                {'error': f'Erreur HuggingFace: {resp.status_code}'},
+                status=status.HTTP_502_BAD_GATEWAY
+            )
+
+        content_type = resp.headers.get('content-type', 'image/jpeg')
+        image_base64 = base64.b64encode(resp.content).decode('utf-8')
+
+        return Response({
+            'image': image_base64,
+            'mime_type': content_type,
+        })
+
+    except requests.Timeout:
+        return Response(
+            {'error': 'Délai de génération dépassé (60s)'},
+            status=status.HTTP_504_GATEWAY_TIMEOUT
+        )
+    except Exception as e:
+        return Response(
+            {'error': f'Erreur génération illustration: {str(e)}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
