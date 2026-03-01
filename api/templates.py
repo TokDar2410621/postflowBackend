@@ -1,3 +1,4 @@
+from django.db.models import Q
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -6,13 +7,8 @@ from rest_framework.response import Response
 from .models import PromptTemplate
 
 
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def list_templates(request):
-    """Liste les templates de l'utilisateur"""
-    templates = PromptTemplate.objects.filter(user=request.user)
-
-    data = [{
+def _template_to_dict(t):
+    return {
         'id': t.id,
         'name': t.name,
         'description': t.description,
@@ -20,11 +16,21 @@ def list_templates(request):
         'prompt_prefix': t.prompt_prefix,
         'prompt_suffix': t.prompt_suffix,
         'is_default': t.is_default,
+        'is_global': t.is_global,
         'created_at': t.created_at.isoformat(),
         'updated_at': t.updated_at.isoformat(),
-    } for t in templates]
+    }
 
-    return Response(data)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def list_templates(request):
+    """Liste les templates de l'utilisateur + les templates globaux"""
+    templates = PromptTemplate.objects.filter(
+        Q(user=request.user) | Q(is_global=True)
+    ).distinct()
+
+    return Response([_template_to_dict(t) for t in templates])
 
 
 @api_view(['POST'])
@@ -63,28 +69,18 @@ def create_template(request):
         is_default=is_default,
     )
 
-    return Response({
-        'id': template.id,
-        'name': template.name,
-        'description': template.description,
-        'default_tone': template.default_tone,
-        'prompt_prefix': template.prompt_prefix,
-        'prompt_suffix': template.prompt_suffix,
-        'is_default': template.is_default,
-        'created_at': template.created_at.isoformat(),
-        'updated_at': template.updated_at.isoformat(),
-    }, status=status.HTTP_201_CREATED)
+    return Response(_template_to_dict(template), status=status.HTTP_201_CREATED)
 
 
 @api_view(['PUT'])
 @permission_classes([IsAuthenticated])
 def update_template(request, pk):
-    """Met à jour un template"""
+    """Met à jour un template (uniquement les templates personnels)"""
     try:
-        template = PromptTemplate.objects.get(pk=pk, user=request.user)
+        template = PromptTemplate.objects.get(pk=pk, user=request.user, is_global=False)
     except PromptTemplate.DoesNotExist:
         return Response(
-            {'error': 'Template non trouvé'},
+            {'error': 'Template non trouvé ou non modifiable'},
             status=status.HTTP_404_NOT_FOUND
         )
 
@@ -108,30 +104,48 @@ def update_template(request, pk):
 
     template.save()
 
-    return Response({
-        'id': template.id,
-        'name': template.name,
-        'description': template.description,
-        'default_tone': template.default_tone,
-        'prompt_prefix': template.prompt_prefix,
-        'prompt_suffix': template.prompt_suffix,
-        'is_default': template.is_default,
-        'created_at': template.created_at.isoformat(),
-        'updated_at': template.updated_at.isoformat(),
-    })
+    return Response(_template_to_dict(template))
 
 
 @api_view(['DELETE'])
 @permission_classes([IsAuthenticated])
 def delete_template(request, pk):
-    """Supprime un template"""
+    """Supprime un template (uniquement les templates personnels)"""
     try:
-        template = PromptTemplate.objects.get(pk=pk, user=request.user)
+        template = PromptTemplate.objects.get(pk=pk, user=request.user, is_global=False)
+    except PromptTemplate.DoesNotExist:
+        return Response(
+            {'error': 'Template non trouvé ou non supprimable'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    template.delete()
+    return Response({'success': True, 'message': 'Template supprimé'})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def duplicate_template(request, pk):
+    """Duplique un template (global ou personnel) en tant que template personnel"""
+    try:
+        template = PromptTemplate.objects.get(
+            Q(pk=pk) & (Q(user=request.user) | Q(is_global=True))
+        )
     except PromptTemplate.DoesNotExist:
         return Response(
             {'error': 'Template non trouvé'},
             status=status.HTTP_404_NOT_FOUND
         )
 
-    template.delete()
-    return Response({'success': True, 'message': 'Template supprimé'})
+    new_template = PromptTemplate.objects.create(
+        user=request.user,
+        name=f"{template.name} (copie)",
+        description=template.description,
+        default_tone=template.default_tone,
+        prompt_prefix=template.prompt_prefix,
+        prompt_suffix=template.prompt_suffix,
+        is_default=False,
+        is_global=False,
+    )
+
+    return Response(_template_to_dict(new_template), status=status.HTTP_201_CREATED)

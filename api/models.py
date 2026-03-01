@@ -99,6 +99,7 @@ class PromptTemplate(models.Model):
     prompt_suffix = models.TextField(blank=True, verbose_name="Suffixe du prompt",
                                      help_text="Texte ajouté à la fin du résumé")
     is_default = models.BooleanField(default=False, verbose_name="Template par défaut")
+    is_global = models.BooleanField(default=False, verbose_name="Template global", db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -43,6 +43,7 @@ urlpatterns = [
     path('templates/create/', templates.create_template, name='create_template'),
     path('templates/<int:pk>/', templates.update_template, name='update_template'),
     path('templates/<int:pk>/delete/', templates.delete_template, name='delete_template'),
+    path('templates/<int:pk>/duplicate/', templates.duplicate_template, name='duplicate_template'),
 
     # LinkedIn OAuth
     path('auth/linkedin/', linkedin.linkedin_auth, name='linkedin_auth'),
