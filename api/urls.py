@@ -9,6 +9,7 @@ from . import analytics
 from . import images
 from . import carousel
 from . import infographic
+from . import comments
 
 urlpatterns = [
     # Auth
@@ -64,6 +65,11 @@ urlpatterns = [
 
     # Infographic
     path('infographic/generate/', infographic.generate_infographic, name='generate_infographic'),
+
+    # Comments (fetch, analyze, reply)
+    path('comments/analyze/', comments.analyze_comments, name='analyze_comments'),
+    path('comments/reply/', comments.reply_to_comment, name='reply_to_comment'),
+    path('comments/<int:post_id>/', comments.fetch_comments, name='fetch_comments'),
 
     # Analytics
     path('analytics/', analytics.get_analytics_summary, name='analytics_summary'),

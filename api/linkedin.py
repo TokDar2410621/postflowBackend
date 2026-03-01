@@ -44,7 +44,7 @@ def linkedin_auth(request):
         'response_type': 'code',
         'client_id': settings.LINKEDIN_CLIENT_ID,
         'redirect_uri': settings.LINKEDIN_REDIRECT_URI,
-        'scope': 'openid profile email w_member_social',
+        'scope': 'openid profile email w_member_social r_member_social',
         'state': state_token,
     }
     auth_url = f"{LINKEDIN_AUTH_URL}?{urlencode(params)}"
@@ -65,7 +65,7 @@ def linkedin_init_auth(request):
         'response_type': 'code',
         'client_id': settings.LINKEDIN_CLIENT_ID,
         'redirect_uri': settings.LINKEDIN_REDIRECT_URI,
-        'scope': 'openid profile email w_member_social',
+        'scope': 'openid profile email w_member_social r_member_social',
         'state': state_token,
     }
     auth_url = f"{LINKEDIN_AUTH_URL}?{urlencode(params)}"
