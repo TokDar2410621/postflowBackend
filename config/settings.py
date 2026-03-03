@@ -210,6 +210,9 @@ LINKEDIN_CLIENT_SECRET = os.getenv('LINKEDIN_CLIENT_SECRET', '')
 LINKEDIN_REDIRECT_URI = os.getenv('LINKEDIN_REDIRECT_URI', 'http://localhost:8000/api/auth/linkedin/callback')
 FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:8080')
 
+TWITTER_CLIENT_ID = os.getenv('TWITTER_CLIENT_ID', '')
+TWITTER_CLIENT_SECRET = os.getenv('TWITTER_CLIENT_SECRET', '')
+
 # Pexels
 PEXELS_API_KEY = os.getenv('PEXELS_API_KEY', '')
 

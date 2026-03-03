@@ -112,6 +112,27 @@ class PromptTemplate(models.Model):
         return f"{self.name} ({self.default_tone})"
 
 
+class TwitterAccount(models.Model):
+    """Stocke les tokens OAuth Twitter/X"""
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='twitter_account')
+    twitter_id = models.CharField(max_length=100, unique=True)
+    username = models.CharField(max_length=100)
+    name = models.CharField(max_length=255, blank=True)
+    profile_picture_url = models.URLField(max_length=500, blank=True)
+    access_token = models.TextField()
+    refresh_token = models.TextField(blank=True)
+    token_expires_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Compte Twitter/X"
+        verbose_name_plural = "Comptes Twitter/X"
+
+    def __str__(self):
+        return f"@{self.username} ({self.twitter_id})"
+
+
 class PublishedPost(models.Model):
     """Posts publiés avec leurs statistiques LinkedIn"""
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='published_posts', null=True, blank=True)

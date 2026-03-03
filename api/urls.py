@@ -10,6 +10,7 @@ from . import images
 from . import carousel
 from . import infographic
 from . import comments
+from . import twitter
 
 urlpatterns = [
     # Auth
@@ -71,6 +72,13 @@ urlpatterns = [
     path('comments/analyze/', comments.analyze_comments, name='analyze_comments'),
     path('comments/reply/', comments.reply_to_comment, name='reply_to_comment'),
     path('comments/<int:post_id>/', comments.fetch_comments, name='fetch_comments'),
+
+    # Twitter/X OAuth + publish
+    path('auth/twitter/init/', twitter.twitter_init_auth, name='twitter_init_auth'),
+    path('auth/twitter/callback/', twitter.twitter_callback, name='twitter_callback'),
+    path('twitter/status/', twitter.twitter_status, name='twitter_status'),
+    path('twitter/disconnect/', twitter.twitter_disconnect, name='twitter_disconnect'),
+    path('twitter/publish/', twitter.twitter_publish, name='twitter_publish'),
 
     # Analytics
     path('analytics/', analytics.get_analytics_summary, name='analytics_summary'),
