@@ -14,7 +14,7 @@ from .views import get_user_context
 
 logger = logging.getLogger(__name__)
 
-VALID_SLIDE_TYPES = {'title', 'content', 'quote', 'cta'}
+VALID_SLIDE_TYPES = {'title', 'content', 'quote', 'cta', 'dialogue'}
 
 
 def validate_slides(slides):
@@ -65,6 +65,17 @@ TEMPLATE_INSTRUCTIONS = {
 - Le body ou les bullets revelent la realite avec des arguments
 - Ton un peu provocateur pour generer des reactions
 - La slide CTA invite a debattre en commentaires""",
+
+    'dialogue': """FORMAT: DIALOGUE Q&A (BULLES DE CHAT)
+- La slide titre pose la problematique ou le theme du dialogue
+- Les slides intermediaires sont TOUTES de type "dialogue" avec 2 bulles de conversation
+- Chaque slide dialogue = 1 echange: une question/probleme a gauche, une reponse/solution a droite
+- left_speaker: qui pose la question (ex: "Question", "Le mythe", "Le probleme")
+- left_text: la question ou le probleme (court, 10-20 mots max)
+- right_speaker: qui repond (ex: "La reponse", "La realite", "La solution")
+- right_text: la reponse concrete et actionnable (15-25 mots max)
+- Progresser du probleme le plus courant au plus avance
+- La slide CTA invite a commenter avec leur propre question""",
 }
 
 
@@ -102,7 +113,7 @@ REGLES TECHNIQUES:
 - Retourne UNIQUEMENT du JSON valide, sans markdown, sans backticks, sans commentaire
 - La premiere slide est TOUJOURS de type "title" avec un hook percutant
 - La derniere slide est TOUJOURS de type "cta" (call to action)
-- Les slides intermediaires sont de type "content" ou "quote"
+- Les slides intermediaires sont de type "content", "quote", ou "dialogue"
 - Chaque slide "content" a soit des "bullets" (2-4 points concis), soit un "body" (paragraphe court)
 - Maximum 1 slide "quote" par carousel
 - Le contenu doit etre en francais
@@ -116,6 +127,7 @@ SCHEMA JSON A RESPECTER:
     {{ "type": "content", "title": "Point cle", "bullets": ["Point 1", "Point 2", "Point 3"] }},
     {{ "type": "content", "title": "Autre point", "body": "Paragraphe court et impactant." }},
     {{ "type": "quote", "quote": "Citation inspirante", "author": "Auteur" }},
+    {{ "type": "dialogue", "title": "Sujet optionnel", "left_speaker": "Question", "left_text": "texte de la question", "right_speaker": "Reponse", "right_text": "texte de la reponse" }},
     {{ "type": "cta", "title": "Titre final", "cta_text": "Action a faire", "cta_subtitle": "Suivez-moi pour plus" }}
   ]
 }}
@@ -209,6 +221,10 @@ def generate_carousel_caption(request):
             parts.append(f'"{slide["quote"]}"')
         if slide.get('cta_text'):
             parts.append(slide['cta_text'])
+        if slide.get('left_text'):
+            parts.append(f"{slide.get('left_speaker', 'Q')}: {slide['left_text']}")
+        if slide.get('right_text'):
+            parts.append(f"{slide.get('right_speaker', 'R')}: {slide['right_text']}")
         slides_text.append(f"Slide {i + 1}: {' - '.join(parts)}")
 
     carousel_summary = '\n'.join(slides_text)
