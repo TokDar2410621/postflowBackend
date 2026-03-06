@@ -160,3 +160,81 @@ SCHEMA JSON A RESPECTER:
             {'error': 'Erreur interne'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+@parser_classes([JSONParser])
+def generate_infographic_caption(request):
+    title = request.data.get('title', '').strip()
+    subtitle = request.data.get('subtitle', '').strip()
+    items = request.data.get('items', [])
+    topic = request.data.get('topic', '').strip()
+    tone = request.data.get('tone', 'professionnel')
+
+    if not items or not isinstance(items, list):
+        return Response(
+            {'error': 'Les elements sont requis'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # Build text summary
+    items_text = []
+    for item in items:
+        num = item.get('number', '')
+        t = item.get('title', '')
+        desc = item.get('description', '')
+        items_text.append(f"{num}. {t} - {desc}")
+
+    summary = f"Titre: {title}"
+    if subtitle:
+        summary += f"\nSous-titre: {subtitle}"
+    summary += f"\n\nElements:\n" + "\n".join(items_text)
+
+    user_context = get_user_context(request)
+
+    system_prompt = f"""Tu es un expert LinkedIn qui ecrit des legendes (captions) virales pour accompagner des infographies.
+
+REGLES:
+- La legende doit donner envie de lire et sauvegarder l'infographie
+- Commence par un HOOK percutant (1ere ligne qui stoppe le scroll)
+- Ajoute 2-3 phrases qui resument la valeur de l'infographie
+- Termine par un CTA (question ou invitation a commenter/sauvegarder)
+- Ajoute une ligne vide puis 3-5 hashtags pertinents
+- Ton: {tone}
+- Longueur ideale: 800-1200 caracteres
+- Utilise des emojis avec parcimonie (2-3 max)
+- Ecris en francais
+- N'utilise PAS de markdown (pas de ** ou ##)
+
+{user_context}"""
+
+    user_message = f"""Ecris une legende LinkedIn pour cette infographie sur le sujet "{topic or title}".
+
+Contenu de l'infographie:
+{summary}"""
+
+    try:
+        client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+        response = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1000,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_message}],
+        )
+
+        caption = response.content[0].text.strip()
+        return Response({'caption': caption})
+
+    except anthropic.APIError as e:
+        logger.error(f"Anthropic API error (infographic caption): {e}")
+        return Response(
+            {'error': 'Erreur API IA. Reessayez.'},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+    except Exception as e:
+        logger.error(f"Infographic caption generation error: {e}")
+        return Response(
+            {'error': 'Erreur interne'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )

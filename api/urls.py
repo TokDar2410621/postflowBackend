@@ -67,6 +67,7 @@ urlpatterns = [
 
     # Infographic
     path('infographic/generate/', infographic.generate_infographic, name='generate_infographic'),
+    path('infographic/generate-caption/', infographic.generate_infographic_caption, name='generate_infographic_caption'),
 
     # Comments (fetch, analyze, reply)
     path('comments/analyze/', comments.analyze_comments, name='analyze_comments'),
