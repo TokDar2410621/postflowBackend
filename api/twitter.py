@@ -96,6 +96,9 @@ def twitter_callback(request):
         timeout=10,
     )
     if not token_resp.ok:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Twitter token exchange failed: {token_resp.status_code} — {token_resp.text}")
         return redirect(f"{frontend}/profile?twitter_error=token_failed")
 
     tokens = token_resp.json()
