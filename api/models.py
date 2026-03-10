@@ -64,6 +64,7 @@ class ScheduledPost(models.Model):
     content = models.TextField(verbose_name="Contenu du post")
     scheduled_at = models.DateTimeField(verbose_name="Date de publication prévue")
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    first_comment = models.TextField(blank=True, default='', verbose_name="Premier commentaire auto")
     error_message = models.TextField(blank=True, verbose_name="Message d'erreur")
     images_data = models.JSONField(default=list, blank=True, verbose_name="Images en base64",
                                     help_text="Liste de {data: base64, mime_type: str}")

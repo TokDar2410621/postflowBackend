@@ -407,6 +407,14 @@ def linkedin_publish(request):
             tone=tone
         )
 
+        # Post first comment if provided
+        first_comment = request.data.get('first_comment', '').strip()
+        if first_comment and linkedin_post_id:
+            try:
+                post_first_comment_to_linkedin(account, linkedin_post_id, first_comment)
+            except Exception as e:
+                logger.warning(f"First comment failed for post {linkedin_post_id}: {e}")
+
         return Response({
             'success': True,
             'message': 'Post publié avec succès sur LinkedIn!'
@@ -417,6 +425,37 @@ def linkedin_publish(request):
             {'error': f'Erreur LinkedIn: {error_msg}'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
+
+
+def post_first_comment_to_linkedin(account, post_urn, comment_text):
+    """Post a first comment on a LinkedIn post right after publication."""
+    from urllib.parse import quote
+
+    encoded_urn = quote(post_urn, safe='')
+    headers = {
+        'Authorization': f'Bearer {account.access_token}',
+        'LinkedIn-Version': LINKEDIN_API_VERSION,
+        'X-Restli-Protocol-Version': '2.0.0',
+        'Content-Type': 'application/json',
+    }
+
+    body = {
+        'actor': f'urn:li:person:{account.linkedin_id}',
+        'message': {'text': comment_text},
+    }
+
+    resp = requests.post(
+        f'https://api.linkedin.com/rest/socialActions/{encoded_urn}/comments',
+        json=body,
+        headers=headers,
+        timeout=15,
+    )
+
+    if resp.status_code not in [200, 201]:
+        logger.warning(f"First comment API error: {resp.status_code} {resp.text[:300]}")
+        raise Exception(f"LinkedIn comment API error: {resp.status_code}")
+
+    logger.info(f"First comment posted on {post_urn}")
 
 
 @api_view(['POST'])

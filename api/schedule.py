@@ -12,7 +12,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from .models import ScheduledPost, LinkedInAccount
-from .linkedin import upload_image_to_linkedin, LINKEDIN_UGC_POSTS_URL
+from .linkedin import upload_image_to_linkedin, post_first_comment_to_linkedin, LINKEDIN_UGC_POSTS_URL
 import requests
 
 logger = logging.getLogger(__name__)
@@ -100,10 +100,13 @@ def schedule_post(request):
         mime_type = getattr(img, 'content_type', 'image/jpeg')
         images_data.append({'data': img_b64, 'mime_type': mime_type})
 
+    first_comment = request.data.get('first_comment', '').strip()
+
     post = ScheduledPost.objects.create(
         user=request.user,
         content=content,
         scheduled_at=scheduled_at,
+        first_comment=first_comment,
         images_data=images_data,
         status='pending'
     )
@@ -288,11 +291,21 @@ def publish_scheduled_posts():
                 response = requests.post(LINKEDIN_UGC_POSTS_URL, json=post_data, headers=headers)
 
                 if response.status_code in [200, 201]:
+                    resp_data = response.json()
+                    linkedin_post_id = resp_data.get('id', '')
+
                     post.status = 'published'
                     post.published_at = timezone.now()
                     post.save()
                     published_count += 1
                     logger.info(f'Scheduled post {post.id} published successfully')
+
+                    # Post first comment if set
+                    if post.first_comment and linkedin_post_id:
+                        try:
+                            post_first_comment_to_linkedin(account, linkedin_post_id, post.first_comment)
+                        except Exception as e:
+                            logger.warning(f'Scheduled post {post.id}: first comment failed: {e}')
                 else:
                     error_msg = response.json().get('message', 'Unknown error')
                     post.status = 'failed'

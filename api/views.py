@@ -548,6 +548,63 @@ CONTRAINTES :
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+@api_view(['POST'])
+@permission_classes([AllowAny])
+@parser_classes([JSONParser])
+def generate_first_comment(request):
+    """Generate an AI-suggested first comment for a LinkedIn post."""
+    content = request.data.get('content', '').strip()
+    tone = request.data.get('tone', 'professionnel')
+
+    if not content:
+        return Response({'error': 'Le contenu du post est requis'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if not settings.ANTHROPIC_API_KEY:
+        return Response({'error': 'ANTHROPIC_API_KEY is not configured'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    try:
+        client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+        user_context = get_user_context(request)
+
+        system_prompt = f"""Tu es un expert LinkedIn qui écrit des premiers commentaires stratégiques.
+
+Le premier commentaire est crucial car :
+- Les commentaires ont 15x plus de poids algorithmique que les likes
+- Poster un commentaire dans les 60 premières minutes booste la visibilité de 90%
+- Il lance la conversation et encourage d'autres à commenter
+
+RÈGLES:
+- Écris UN SEUL commentaire court (2-4 phrases max)
+- Ajoute de la valeur : contexte supplémentaire, question ouverte, ou ressource complémentaire
+- Sois authentique, pas promotionnel
+- Ton: {tone}
+- Pas de hashtags, pas d'emojis excessifs (1-2 max)
+- Retourne UNIQUEMENT le commentaire
+
+{user_context}"""
+
+        message = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=300,
+            system=system_prompt,
+            messages=[
+                {"role": "user", "content": f"Écris un premier commentaire stratégique pour ce post LinkedIn :\n\n{content}"}
+            ]
+        )
+
+        comment = message.content[0].text.strip()
+        for char in ['"', '\u201c', '\u201d', '\u00ab', '\u00bb']:
+            if comment.startswith(char) and comment.endswith(char):
+                comment = comment[1:-1]
+
+        return Response({'comment': comment})
+
+    except anthropic.RateLimitError:
+        return Response({'error': 'Trop de requêtes'}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def list_posts(request):

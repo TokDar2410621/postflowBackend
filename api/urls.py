@@ -11,6 +11,8 @@ from . import carousel
 from . import infographic
 from . import comments
 from . import twitter
+from . import repurpose
+from . import convert
 
 urlpatterns = [
     # Auth
@@ -29,6 +31,7 @@ urlpatterns = [
     path('generate/variants/regenerate/', views.regenerate_single_variant, name='regenerate_single_variant'),
     path('generate/hashtags/', views.suggest_hashtags, name='suggest_hashtags'),
     path('generate/hook/', views.regenerate_hook, name='regenerate_hook'),
+    path('generate/first-comment/', views.generate_first_comment, name='generate_first_comment'),
     path('posts/published/', views.list_published_posts, name='list_published_posts'),
     path('posts/', views.list_posts, name='list_posts'),
     path('posts/<int:pk>/', views.get_post, name='get_post'),
@@ -82,6 +85,14 @@ urlpatterns = [
     path('twitter/publish/', twitter.twitter_publish, name='twitter_publish'),
 
     # Analytics
+    # Repurpose (URL extraction)
+    path('repurpose/extract/', repurpose.extract_url_content, name='extract_url_content'),
+
+    # Convert between formats
+    path('convert/to-carousel/', convert.convert_to_carousel, name='convert_to_carousel'),
+    path('convert/to-infographic/', convert.convert_to_infographic, name='convert_to_infographic'),
+    path('convert/to-post/', convert.convert_to_post, name='convert_to_post'),
+
     path('analytics/', analytics.get_analytics_summary, name='analytics_summary'),
     path('analytics/chart/', analytics.get_analytics_chart, name='analytics_chart'),
     path('analytics/top/', analytics.get_top_posts, name='analytics_top'),
