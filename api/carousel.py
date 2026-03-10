@@ -11,10 +11,11 @@ from django.conf import settings
 import anthropic
 
 from .views import get_user_context
+from .billing import check_generation_limit, increment_usage
 
 logger = logging.getLogger(__name__)
 
-VALID_SLIDE_TYPES = {'title', 'content', 'quote', 'cta', 'dialogue'}
+VALID_SLIDE_TYPES = {'title', 'content', 'quote', 'cta', 'dialogue', 'stats', 'comparison', 'list', 'image_text', 'highlight'}
 
 
 def validate_slides(slides):
@@ -47,9 +48,9 @@ TEMPLATE_INSTRUCTIONS = {
 
     'data': """FORMAT: DATA & CHIFFRES
 - La slide titre annonce des chiffres choc ou une tendance forte
-- Chaque slide content met en avant 1 statistique cle dans le titre (ex: "78% des managers...")
-- Les bullets expliquent le contexte et les implications
-- Inclure une slide quote avec une source credible
+- Utilise des slides "stats" pour mettre en avant les chiffres cles (stat_number gros, stat_label et stat_description)
+- Alterne entre slides "stats" et slides "content" pour varier le visuel
+- Inclure une slide "quote" avec une source credible
 - La slide CTA invite a commenter avec ses propres chiffres""",
 
     'quick-wins': """FORMAT: QUICK WINS / ASTUCES RAPIDES
@@ -61,8 +62,9 @@ TEMPLATE_INSTRUCTIONS = {
 
     'myths': """FORMAT: MYTHES VS REALITE
 - La slide titre annonce qu'on va casser des idees recues (ex: "5 mythes sur le management")
-- Chaque slide content a un titre qui commence par le mythe (ex: "Mythe : Il faut travailler 60h/semaine")
-- Le body ou les bullets revelent la realite avec des arguments
+- Utilise des slides "comparison" avec left_title="Le mythe" et right_title="La realite"
+- left_items = les croyances fausses, right_items = la verite avec arguments
+- Alterne avec des slides "highlight" pour les phrases choc
 - Ton un peu provocateur pour generer des reactions
 - La slide CTA invite a debattre en commentaires""",
 
@@ -83,6 +85,12 @@ TEMPLATE_INSTRUCTIONS = {
 @permission_classes([AllowAny])
 @parser_classes([JSONParser])
 def generate_carousel(request):
+    # Vérifier la limite de générations
+    if request.user.is_authenticated:
+        can_generate, error_response = check_generation_limit(request.user)
+        if not can_generate:
+            return error_response
+
     topic = request.data.get('topic', '').strip()
     tone = request.data.get('tone', 'professionnel')
     num_slides = request.data.get('num_slides', 7)
@@ -113,19 +121,34 @@ REGLES TECHNIQUES:
 - Retourne UNIQUEMENT du JSON valide, sans markdown, sans backticks, sans commentaire
 - La premiere slide est TOUJOURS de type "title" avec un hook percutant
 - La derniere slide est TOUJOURS de type "cta" (call to action)
-- Les slides intermediaires sont de type "content", "quote", ou "dialogue"
+- Les slides intermediaires peuvent etre: "content", "quote", "dialogue", "stats", "comparison", "list", "image_text", "highlight"
 - Chaque slide "content" a soit des "bullets" (2-4 points concis), soit un "body" (paragraphe court)
 - Maximum 1 slide "quote" par carousel
 - Le contenu doit etre en francais
 - Cree un fil narratif logique entre les slides
+- VARIE les types de slides pour un carousel visuellement dynamique (ne mets pas que des "content")
 - Adapte le ton: {tone}
+
+QUAND UTILISER CHAQUE TYPE DE SLIDE:
+- "content" : point cle avec bullets ou paragraphe (polyvalent)
+- "stats" : mettre en avant UN chiffre cle percutant (ex: "78%", "+200K", "3x")
+- "comparison" : opposer 2 idees, avant/apres, mythe/realite en 2 colonnes
+- "list" : liste d'elements avec emojis (conseils, outils, etapes)
+- "highlight" : une phrase impact forte, isolee, qui marque les esprits
+- "quote" : citation d'un auteur ou expert
+- "dialogue" : echange Q&A en bulles de chat
+- "image_text" : texte + espace image (utiliser pour slides visuelles)
 {template_block}
-SCHEMA JSON A RESPECTER:
+SCHEMA JSON A RESPECTER (exemples de chaque type):
 {{
   "slides": [
     {{ "type": "title", "title": "Titre accrocheur", "subtitle": "Sous-titre explicatif" }},
     {{ "type": "content", "title": "Point cle", "bullets": ["Point 1", "Point 2", "Point 3"] }},
     {{ "type": "content", "title": "Autre point", "body": "Paragraphe court et impactant." }},
+    {{ "type": "stats", "stat_number": "78%", "stat_label": "des managers", "stat_description": "ne savent pas deleguer efficacement" }},
+    {{ "type": "comparison", "left_title": "Avant", "left_items": ["Pas de process", "Travail reactif"], "right_title": "Apres", "right_items": ["Process clairs", "Travail proactif"] }},
+    {{ "type": "list", "title": "Les outils essentiels", "list_items": [{{ "emoji": "🎯", "text": "Notion pour organiser" }}, {{ "emoji": "⚡", "text": "Slack pour communiquer" }}] }},
+    {{ "type": "highlight", "highlight_text": "Le succes n'est pas un accident. C'est un choix quotidien." }},
     {{ "type": "quote", "quote": "Citation inspirante", "author": "Auteur" }},
     {{ "type": "dialogue", "title": "Sujet optionnel", "left_speaker": "Question", "left_text": "texte de la question", "right_speaker": "Reponse", "right_text": "texte de la reponse" }},
     {{ "type": "cta", "title": "Titre final", "cta_text": "Action a faire", "cta_subtitle": "Suivez-moi pour plus" }}
@@ -161,6 +184,8 @@ SCHEMA JSON A RESPECTER:
                 {'error': 'Structure de slides invalide generee par l\'IA'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+        increment_usage(request.user)
 
         return Response({
             'slides': slides,
@@ -225,6 +250,19 @@ def generate_carousel_caption(request):
             parts.append(f"{slide.get('left_speaker', 'Q')}: {slide['left_text']}")
         if slide.get('right_text'):
             parts.append(f"{slide.get('right_speaker', 'R')}: {slide['right_text']}")
+        # New slide types
+        if slide.get('stat_number'):
+            parts.append(f"{slide['stat_number']} {slide.get('stat_label', '')}")
+        if slide.get('stat_description'):
+            parts.append(slide['stat_description'])
+        if slide.get('highlight_text'):
+            parts.append(slide['highlight_text'])
+        if slide.get('left_title') and slide.get('left_items'):
+            parts.append(f"{slide['left_title']}: {', '.join(slide['left_items'])}")
+        if slide.get('right_title') and slide.get('right_items'):
+            parts.append(f"{slide['right_title']}: {', '.join(slide['right_items'])}")
+        if slide.get('list_items'):
+            parts.append(' / '.join(item.get('text', '') for item in slide['list_items']))
         slides_text.append(f"Slide {i + 1}: {' - '.join(parts)}")
 
     carousel_summary = '\n'.join(slides_text)

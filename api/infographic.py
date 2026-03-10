@@ -11,6 +11,7 @@ from django.conf import settings
 import anthropic
 
 from .views import get_user_context
+from .billing import check_generation_limit, increment_usage, get_plan_limits
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,37 @@ INFOGRAPHIC_TEMPLATE_INSTRUCTIONS = {
 - Alterner entre le probleme et la solution
 - Titres contrastants (ex: "Publier au hasard" vs "Planifier sa strategie")
 - Descriptions qui expliquent l'impact de chaque approche""",
+
+    'timeline': """FORMAT: TIMELINE / CHRONOLOGIE
+- Les items representent des etapes dans le temps (jours, semaines, mois ou etapes sequentielles)
+- Chaque titre indique la periode ou l'etape (ex: "Semaine 1", "Jour 1-7", "Phase initiale")
+- La description explique ce qu'il faut faire pendant cette periode
+- Ajoute un emoji pertinent a chaque item (champ "emoji")
+- Progression chronologique logique du debut a la fin
+- Le template est "timeline" """,
+
+    'process': """FORMAT: PROCESSUS / WORKFLOW
+- Chaque item = 1 etape du processus avec un numero
+- Le titre est l'action principale (verbe + objet, ex: "Analyser les donnees")
+- La description detaille le comment faire concretement
+- Ajoute un emoji pertinent a chaque etape (champ "emoji")
+- Les etapes forment un processus complet et reproductible
+- Le template est "process" """,
+
+    'stats-dashboard': """FORMAT: TABLEAU DE BORD / STATISTIQUES
+- Chaque item met en avant un chiffre/metrique cle dans le champ "stat_value" (ex: "78%", "+200K", "3x", "45min")
+- Le titre explique ce que mesure le chiffre (ex: "Taux d'engagement moyen")
+- La description donne le contexte ou l'implication du chiffre
+- Les stat_value doivent etre varies (%, nombres, multiplicateurs, durees)
+- Le template est "stats-dashboard" """,
+
+    'comparison': """FORMAT: COMPARAISON 2 COLONNES
+- Les items sont repartis en 2 categories via le champ "category": "left" (probleme/avant) et "right" (solution/apres)
+- Nombre egal d'items left et right (ex: 4 left + 4 right)
+- Chaque item left a un equivalent right (meme index = meme thematique)
+- Ajoute un emoji pertinent a chaque item (champ "emoji")
+- Les titres left sont les problemes, les titres right sont les solutions
+- Le template est "comparison" """,
 }
 
 
@@ -58,10 +90,26 @@ INFOGRAPHIC_TEMPLATE_INSTRUCTIONS = {
 @permission_classes([AllowAny])
 @parser_classes([JSONParser])
 def generate_infographic(request):
+    # Vérifier la limite de générations
+    if request.user.is_authenticated:
+        can_generate, error_response = check_generation_limit(request.user)
+        if not can_generate:
+            return error_response
+
     topic = request.data.get('topic', '').strip()
     tone = request.data.get('tone', 'professionnel')
     num_items = request.data.get('num_items', 9)
     template = request.data.get('template', '').strip()
+
+    # Vérifier l'accès au template
+    if template and request.user.is_authenticated:
+        limits = get_plan_limits(request.user)
+        free_templates = {'grid-numbered', 'timeline'}
+        if limits['infographic_templates'] <= 2 and template not in free_templates:
+            return Response(
+                {'error': 'Ce template est réservé aux plans Pro et Business.', 'code': 'TEMPLATE_RESTRICTED'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
     if not topic:
         return Response({'error': 'Le sujet est requis'}, status=status.HTTP_400_BAD_REQUEST)
@@ -89,15 +137,18 @@ REGLES TECHNIQUES:
 - Retourne UNIQUEMENT du JSON valide, sans markdown, sans backticks, sans commentaire
 - Genere exactement {num_items} items
 - Chaque item a obligatoirement: number (int), title (str), description (str)
+- Champs optionnels par item: emoji (str, 1 emoji), stat_value (str, chiffre cle), category (str, "left" ou "right")
+- Le champ "template" dans la reponse indique le layout choisi
 
 SCHEMA JSON A RESPECTER:
 {{
   "infographic": {{
     "title": "Titre accrocheur de l'infographie",
     "subtitle": "Sous-titre explicatif court",
+    "template": "grid-numbered",
     "items": [
-      {{ "number": 1, "title": "Concept cle", "description": "Description courte et actionnable de ce concept." }},
-      {{ "number": 2, "title": "Autre concept", "description": "Explication concise et impactante." }}
+      {{ "number": 1, "title": "Concept cle", "description": "Description courte et actionnable.", "emoji": "🎯" }},
+      {{ "number": 2, "title": "Autre concept", "description": "Explication concise.", "stat_value": "78%", "category": "left" }}
     ],
     "footer_cta": "Suivez-moi pour plus de conseils"
   }}
@@ -132,6 +183,8 @@ SCHEMA JSON A RESPECTER:
                 {'error': "Structure d'infographie invalide generee par l'IA"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+        increment_usage(request.user)
 
         return Response({
             'infographic': infographic,
@@ -184,7 +237,11 @@ def generate_infographic_caption(request):
         num = item.get('number', '')
         t = item.get('title', '')
         desc = item.get('description', '')
-        items_text.append(f"{num}. {t} - {desc}")
+        stat = item.get('stat_value', '')
+        entry = f"{num}. {t} - {desc}"
+        if stat:
+            entry += f" ({stat})"
+        items_text.append(entry)
 
     summary = f"Titre: {title}"
     if subtitle:

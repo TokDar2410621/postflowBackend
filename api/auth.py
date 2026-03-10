@@ -8,6 +8,7 @@ from rest_framework.throttling import AnonRateThrottle
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.conf import settings
 from django.contrib.auth.models import User
+from django.utils import timezone
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.tokens import default_token_generator
@@ -16,7 +17,7 @@ from django.core.mail import send_mail
 from django.template.loader import render_to_string
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
-from .models import UserProfile, GeneratedPost
+from .models import UserProfile, GeneratedPost, Subscription, UsageRecord
 
 logger = logging.getLogger('api')
 
@@ -66,6 +67,7 @@ def register(request):
         password=password
     )
     UserProfile.objects.create(user=user)
+    Subscription.objects.create(user=user, plan='free', status='active')
 
     # Générer les tokens JWT
     refresh = RefreshToken.for_user(user)
@@ -152,6 +154,12 @@ def profile(request):
     linkedin_connected = hasattr(user, 'linkedin_account') and user.linkedin_account is not None
     linkedin_name = user.linkedin_account.name if linkedin_connected else None
 
+    # Subscription info
+    sub, _ = Subscription.objects.get_or_create(user=user)
+    now = timezone.now()
+    usage, _ = UsageRecord.objects.get_or_create(user=user, year=now.year, month=now.month)
+    plan_limits = settings.PLAN_LIMITS.get(sub.plan, settings.PLAN_LIMITS['free'])
+
     return Response({
         'id': user.id,
         'username': user.username,
@@ -159,6 +167,17 @@ def profile(request):
         'linkedin_connected': linkedin_connected,
         'linkedin_name': linkedin_name,
         'knowledge_base': _serialize_profile(user_profile),
+        'subscription': {
+            'plan': sub.plan,
+            'status': sub.status,
+            'is_active': sub.is_active,
+            'cancel_at_period_end': sub.cancel_at_period_end,
+            'current_period_end': sub.current_period_end.isoformat() if sub.current_period_end else None,
+        },
+        'usage': {
+            'generation_count': usage.generation_count,
+            'generation_limit': plan_limits['generations_per_month'],
+        },
     })
 
 

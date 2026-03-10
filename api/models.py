@@ -216,3 +216,62 @@ class UserProfile(models.Model):
             parts.append(f"\nCONTEXTE ADDITIONNEL :\n{self.additional_context}")
         parts.append("\nAdapte le post à ce profil. Utilise un vocabulaire et des exemples cohérents avec son secteur et son audience.")
         return "\n".join(parts)
+
+
+class Subscription(models.Model):
+    """Abonnement Stripe de l'utilisateur"""
+    PLAN_CHOICES = [
+        ('free', 'Free'),
+        ('pro', 'Pro'),
+        ('business', 'Business'),
+    ]
+    STATUS_CHOICES = [
+        ('active', 'Active'),
+        ('past_due', 'Past Due'),
+        ('canceled', 'Canceled'),
+        ('incomplete', 'Incomplete'),
+    ]
+
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='subscription')
+    plan = models.CharField(max_length=20, choices=PLAN_CHOICES, default='free')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
+    stripe_customer_id = models.CharField(max_length=255, blank=True, db_index=True)
+    stripe_subscription_id = models.CharField(max_length=255, blank=True, db_index=True)
+    current_period_start = models.DateTimeField(null=True, blank=True)
+    current_period_end = models.DateTimeField(null=True, blank=True)
+    cancel_at_period_end = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Abonnement"
+        verbose_name_plural = "Abonnements"
+
+    def __str__(self):
+        return f"{self.user.username} - {self.plan} ({self.status})"
+
+    @property
+    def is_active(self):
+        return self.status in ('active', 'past_due')
+
+    @property
+    def is_paid(self):
+        return self.plan in ('pro', 'business') and self.is_active
+
+
+class UsageRecord(models.Model):
+    """Usage mensuel de générations par utilisateur"""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='usage_records')
+    year = models.IntegerField()
+    month = models.IntegerField()
+    generation_count = models.IntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('user', 'year', 'month')
+        verbose_name = "Usage mensuel"
+        verbose_name_plural = "Usages mensuels"
+
+    def __str__(self):
+        return f"{self.user.username} - {self.year}/{self.month}: {self.generation_count}"

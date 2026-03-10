@@ -13,6 +13,7 @@ import anthropic
 
 from .models import GeneratedPost, PublishedPost, PromptTemplate, UserProfile
 from .serializers import GeneratePostSerializer, GeneratedPostSerializer
+from .billing import check_generation_limit, increment_usage
 
 MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10 MB
 ALLOWED_IMAGE_TYPES = {'image/jpeg', 'image/png', 'image/gif', 'image/webp'}
@@ -137,6 +138,12 @@ Réponds en français."""
 @parser_classes([MultiPartParser, FormParser, JSONParser])
 def generate_post(request):
     """Génère un post LinkedIn à partir d'un résumé et/ou d'images"""
+
+    # Vérifier la limite de générations
+    if request.user.is_authenticated:
+        can_generate, error_response = check_generation_limit(request.user)
+        if not can_generate:
+            return error_response
 
     # Récupérer les données
     summary = request.data.get('summary', '')
@@ -263,6 +270,8 @@ CONTRAINTES :
             generated_content=generated_content
         )
 
+        increment_usage(request.user)
+
         return Response({
             'post': body,
             'hashtags': hashtags,
@@ -292,6 +301,12 @@ CONTRAINTES :
 @parser_classes([MultiPartParser, FormParser, JSONParser])
 def generate_variants(request):
     """Génère plusieurs variantes d'un post LinkedIn"""
+
+    # Vérifier la limite de générations
+    if request.user.is_authenticated:
+        can_generate, error_response = check_generation_limit(request.user)
+        if not can_generate:
+            return error_response
 
     summary = request.data.get('summary', '')
     tone = request.data.get('tone', 'professionnel')
@@ -438,6 +453,8 @@ Retourne UNIQUEMENT les posts, sans introduction ni commentaire."""
                         break
             except Exception:
                 pass
+
+        increment_usage(request.user)
 
         return Response({
             'variants': variants,

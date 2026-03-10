@@ -10,6 +10,7 @@ from django.conf import settings
 import anthropic
 
 from .views import get_user_context, extract_hashtags
+from .billing import check_generation_limit, increment_usage
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,11 @@ logger = logging.getLogger(__name__)
 @parser_classes([JSONParser])
 def convert_to_carousel(request):
     """Convert a text post into carousel slides."""
+    if request.user.is_authenticated:
+        can_generate, error_response = check_generation_limit(request.user)
+        if not can_generate:
+            return error_response
+
     content = request.data.get('content', '').strip()
     tone = request.data.get('tone', 'professionnel')
     num_slides = max(5, min(10, int(request.data.get('num_slides', 7))))
@@ -38,19 +44,23 @@ RÈGLES:
 - Extrais les idées clés du post et structure-les en slides
 - La première slide est de type "title" avec un hook accrocheur tiré du post
 - La dernière slide est de type "cta"
-- Les slides intermédiaires sont "content" ou "quote"
+- Les slides intermédiaires peuvent être: "content", "quote", "stats", "comparison", "list", "highlight", "dialogue"
+- VARIE les types de slides pour un carousel visuellement dynamique
 - Chaque slide content a soit "bullets" (2-4 points concis), soit "body" (paragraphe court)
 - Maximum 1 slide "quote"
 - Titres courts (5-8 mots max), bullets ultra-concis (max 12 mots)
 - Ton: {tone}
 - Retourne UNIQUEMENT du JSON valide, sans backticks, sans commentaire
 
-SCHEMA JSON:
+SCHEMA JSON (exemples de chaque type):
 {{
   "slides": [
     {{ "type": "title", "title": "Titre accrocheur", "subtitle": "Sous-titre" }},
     {{ "type": "content", "title": "Point clé", "bullets": ["Point 1", "Point 2", "Point 3"] }},
-    {{ "type": "content", "title": "Autre point", "body": "Paragraphe court et impactant." }},
+    {{ "type": "stats", "stat_number": "78%", "stat_label": "des managers", "stat_description": "ne délèguent pas efficacement" }},
+    {{ "type": "comparison", "left_title": "Avant", "left_items": ["Problème 1", "Problème 2"], "right_title": "Après", "right_items": ["Solution 1", "Solution 2"] }},
+    {{ "type": "list", "title": "Outils essentiels", "list_items": [{{ "emoji": "🎯", "text": "Notion" }}, {{ "emoji": "⚡", "text": "Slack" }}] }},
+    {{ "type": "highlight", "highlight_text": "Une phrase impact forte et mémorable." }},
     {{ "type": "quote", "quote": "Citation du post", "author": "Auteur" }},
     {{ "type": "cta", "title": "Titre final", "cta_text": "Action", "cta_subtitle": "Suivez-moi" }}
   ]
@@ -76,6 +86,8 @@ SCHEMA JSON:
         data = json.loads(raw)
         slides = data.get('slides', data if isinstance(data, list) else [])
 
+        increment_usage(request.user)
+
         return Response({
             'slides': slides,
             'metadata': {'tone': tone},
@@ -96,6 +108,11 @@ SCHEMA JSON:
 @parser_classes([JSONParser])
 def convert_to_infographic(request):
     """Convert a text post into infographic items."""
+    if request.user.is_authenticated:
+        can_generate, error_response = check_generation_limit(request.user)
+        if not can_generate:
+            return error_response
+
     content = request.data.get('content', '').strip()
     tone = request.data.get('tone', 'professionnel')
     num_items = max(6, min(12, int(request.data.get('num_items', 9))))
@@ -123,9 +140,10 @@ SCHEMA JSON:
   "infographic": {{
     "title": "Titre accrocheur",
     "subtitle": "Sous-titre explicatif court",
+    "template": "grid-numbered",
     "items": [
-      {{ "number": 1, "title": "Concept clé", "description": "Description courte et actionnable." }},
-      {{ "number": 2, "title": "Autre concept", "description": "Explication concise." }}
+      {{ "number": 1, "title": "Concept clé", "description": "Description courte et actionnable.", "emoji": "🎯" }},
+      {{ "number": 2, "title": "Autre concept", "description": "Explication concise.", "emoji": "⚡" }}
     ],
     "footer_cta": "Suivez-moi pour plus de conseils"
   }}
@@ -151,6 +169,8 @@ SCHEMA JSON:
         data = json.loads(raw)
         infographic = data.get('infographic', data if isinstance(data, dict) and 'items' in data else {})
 
+        increment_usage(request.user)
+
         return Response({
             'infographic': infographic,
             'metadata': {'tone': tone},
@@ -171,6 +191,11 @@ SCHEMA JSON:
 @parser_classes([JSONParser])
 def convert_to_post(request):
     """Convert carousel slides or infographic items into a text post."""
+    if request.user.is_authenticated:
+        can_generate, error_response = check_generation_limit(request.user)
+        if not can_generate:
+            return error_response
+
     slides = request.data.get('slides', [])
     infographic = request.data.get('infographic', {})
     tone = request.data.get('tone', 'professionnel')
@@ -195,6 +220,18 @@ def convert_to_post(request):
                 parts.append(f"{slide.get('left_speaker', 'Q')}: {slide['left_text']}")
             if slide.get('right_text'):
                 parts.append(f"{slide.get('right_speaker', 'R')}: {slide['right_text']}")
+            if slide.get('stat_number'):
+                parts.append(f"{slide['stat_number']} {slide.get('stat_label', '')}")
+            if slide.get('stat_description'):
+                parts.append(slide['stat_description'])
+            if slide.get('highlight_text'):
+                parts.append(slide['highlight_text'])
+            if slide.get('left_title') and slide.get('left_items'):
+                parts.append(f"{slide['left_title']}: {', '.join(slide['left_items'])}")
+            if slide.get('right_title') and slide.get('right_items'):
+                parts.append(f"{slide['right_title']}: {', '.join(slide['right_items'])}")
+            if slide.get('list_items'):
+                parts.append(' / '.join(item.get('text', '') for item in slide['list_items']))
             source += ' — '.join(parts) + '\n'
     elif infographic:
         if infographic.get('title'):
@@ -238,6 +275,8 @@ RÈGLES:
 
         generated = response.content[0].text.strip()
         body, hashtags = extract_hashtags(generated)
+
+        increment_usage(request.user)
 
         return Response({
             'post': body,

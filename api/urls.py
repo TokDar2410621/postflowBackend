@@ -13,6 +13,7 @@ from . import comments
 from . import twitter
 from . import repurpose
 from . import convert
+from . import billing
 
 urlpatterns = [
     # Auth
@@ -92,6 +93,12 @@ urlpatterns = [
     path('convert/to-carousel/', convert.convert_to_carousel, name='convert_to_carousel'),
     path('convert/to-infographic/', convert.convert_to_infographic, name='convert_to_infographic'),
     path('convert/to-post/', convert.convert_to_post, name='convert_to_post'),
+
+    # Billing / Stripe
+    path('billing/status/', billing.billing_status, name='billing_status'),
+    path('billing/create-checkout-session/', billing.create_checkout_session, name='create_checkout'),
+    path('billing/create-portal-session/', billing.create_portal_session, name='create_portal'),
+    path('billing/webhook/', billing.stripe_webhook, name='stripe_webhook'),
 
     path('analytics/', analytics.get_analytics_summary, name='analytics_summary'),
     path('analytics/chart/', analytics.get_analytics_chart, name='analytics_chart'),

@@ -222,6 +222,38 @@ GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY', '')
 # Hugging Face
 HF_TOKEN = os.getenv('HF_TOKEN', '')
 
+# Stripe
+STRIPE_SECRET_KEY = os.getenv('STRIPE_SECRET_KEY', '')
+STRIPE_PUBLISHABLE_KEY = os.getenv('STRIPE_PUBLISHABLE_KEY', '')
+STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET', '')
+STRIPE_PRICE_PRO_MONTHLY = os.getenv('STRIPE_PRICE_PRO_MONTHLY', '')
+STRIPE_PRICE_BUSINESS_MONTHLY = os.getenv('STRIPE_PRICE_BUSINESS_MONTHLY', '')
+
+# Plan limits
+PLAN_LIMITS = {
+    'free': {
+        'generations_per_month': 5,
+        'themes_count': 4,
+        'infographic_templates': 2,
+        'social_accounts': 1,
+        'watermark': True,
+    },
+    'pro': {
+        'generations_per_month': 50,
+        'themes_count': 15,
+        'infographic_templates': 7,
+        'social_accounts': 3,
+        'watermark': False,
+    },
+    'business': {
+        'generations_per_month': None,  # unlimited
+        'themes_count': 15,
+        'infographic_templates': 7,
+        'social_accounts': None,  # unlimited
+        'watermark': False,
+    },
+}
+
 # Email Configuration
 EMAIL_BACKEND = os.getenv('EMAIL_BACKEND', 'django.core.mail.backends.console.EmailBackend')
 EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.gmail.com')
