@@ -240,6 +240,7 @@ PLAN_LIMITS = {
         'infographic_templates': 2,
         'social_accounts': 1,
         'watermark': True,
+        'cartoon_per_month': 1,
     },
     'pro': {
         'generations_per_month': 50,
@@ -247,6 +248,7 @@ PLAN_LIMITS = {
         'infographic_templates': 7,
         'social_accounts': 3,
         'watermark': False,
+        'cartoon_per_month': None,  # unlimited
     },
     'business': {
         'generations_per_month': None,  # unlimited
@@ -254,6 +256,7 @@ PLAN_LIMITS = {
         'infographic_templates': 7,
         'social_accounts': None,  # unlimited
         'watermark': False,
+        'cartoon_per_month': None,  # unlimited
     },
 }
 

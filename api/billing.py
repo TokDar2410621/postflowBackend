@@ -11,7 +11,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
-from .models import Subscription, UsageRecord
+from .models import Subscription, UsageRecord, CartoonUsageRecord
 
 logger = logging.getLogger('api')
 
@@ -86,6 +86,10 @@ def billing_status(request):
     )
     limits = settings.PLAN_LIMITS.get(sub.plan, settings.PLAN_LIMITS['free'])
 
+    cartoon_usage, _ = CartoonUsageRecord.objects.get_or_create(
+        user=request.user, year=now.year, month=now.month
+    )
+
     return Response({
         'plan': sub.plan,
         'status': sub.status,
@@ -96,11 +100,16 @@ def billing_status(request):
             'generation_count': usage.generation_count,
             'generation_limit': limits['generations_per_month'],
         },
+        'cartoon_usage': {
+            'cartoon_count': cartoon_usage.cartoon_count,
+            'cartoon_limit': limits.get('cartoon_per_month'),
+        },
         'limits': {
             'themes_count': limits['themes_count'],
             'infographic_templates': limits['infographic_templates'],
             'social_accounts': limits['social_accounts'],
             'watermark': limits['watermark'],
+            'cartoon_per_month': limits.get('cartoon_per_month'),
         },
     })
 

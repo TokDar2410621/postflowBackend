@@ -14,6 +14,7 @@ from . import twitter
 from . import repurpose
 from . import convert
 from . import billing
+from . import cartoon
 
 urlpatterns = [
     # Auth
@@ -93,6 +94,12 @@ urlpatterns = [
     path('convert/to-carousel/', convert.convert_to_carousel, name='convert_to_carousel'),
     path('convert/to-infographic/', convert.convert_to_infographic, name='convert_to_infographic'),
     path('convert/to-post/', convert.convert_to_post, name='convert_to_post'),
+
+    # Cartoon Dialogue
+    path('cartoon-dialogue/generate-avatar/', cartoon.generate_avatar, name='generate_cartoon_avatar'),
+    path('cartoon-dialogue/validate-avatar/', cartoon.validate_avatar, name='validate_cartoon_avatar'),
+    path('cartoon-dialogue/regenerate-avatar/', cartoon.regenerate_avatar, name='regenerate_cartoon_avatar'),
+    path('cartoon-dialogue/generate/', cartoon.generate_cartoon_dialogue, name='generate_cartoon_dialogue'),
 
     # Billing / Stripe
     path('billing/status/', billing.billing_status, name='billing_status'),

@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import GeneratedPost, LinkedInAccount, Subscription, UsageRecord
+from .models import GeneratedPost, LinkedInAccount, Subscription, UsageRecord, CartoonAvatar, CartoonUsageRecord
 
 
 @admin.register(GeneratedPost)
@@ -27,5 +27,18 @@ class SubscriptionAdmin(admin.ModelAdmin):
 @admin.register(UsageRecord)
 class UsageRecordAdmin(admin.ModelAdmin):
     list_display = ['user', 'year', 'month', 'generation_count']
+    list_filter = ['year', 'month']
+    search_fields = ['user__username']
+
+
+@admin.register(CartoonAvatar)
+class CartoonAvatarAdmin(admin.ModelAdmin):
+    list_display = ['user', 'source_photo_url', 'created_at', 'updated_at']
+    readonly_fields = ['created_at', 'updated_at']
+
+
+@admin.register(CartoonUsageRecord)
+class CartoonUsageRecordAdmin(admin.ModelAdmin):
+    list_display = ['user', 'year', 'month', 'cartoon_count']
     list_filter = ['year', 'month']
     search_fields = ['user__username']

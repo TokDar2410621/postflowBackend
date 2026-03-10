@@ -259,6 +259,42 @@ class Subscription(models.Model):
         return self.plan in ('pro', 'business') and self.is_active
 
 
+class CartoonAvatar(models.Model):
+    """Avatar cartoon généré à partir de la photo LinkedIn de l'utilisateur"""
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='cartoon_avatar')
+    appearance_description = models.TextField(verbose_name="Description de l'apparence")
+    avatar_base64 = models.TextField(verbose_name="Avatar cartoon (base64)")
+    avatar_mime_type = models.CharField(max_length=50, default='image/jpeg')
+    source_photo_url = models.URLField(max_length=500, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Avatar cartoon"
+        verbose_name_plural = "Avatars cartoon"
+
+    def __str__(self):
+        return f"Avatar de {self.user.username}"
+
+
+class CartoonUsageRecord(models.Model):
+    """Usage mensuel de dialogues cartoon par utilisateur"""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='cartoon_usage_records')
+    year = models.IntegerField()
+    month = models.IntegerField()
+    cartoon_count = models.IntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('user', 'year', 'month')
+        verbose_name = "Usage cartoon mensuel"
+        verbose_name_plural = "Usages cartoon mensuels"
+
+    def __str__(self):
+        return f"{self.user.username} - {self.year}/{self.month}: {self.cartoon_count} cartoons"
+
+
 class UsageRecord(models.Model):
     """Usage mensuel de générations par utilisateur"""
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='usage_records')
