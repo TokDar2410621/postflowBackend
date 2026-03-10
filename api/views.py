@@ -14,6 +14,7 @@ import anthropic
 from .models import GeneratedPost, PublishedPost, PromptTemplate, UserProfile
 from .serializers import GeneratePostSerializer, GeneratedPostSerializer
 from .billing import check_generation_limit, increment_usage
+from .llm import get_user_plan, resolve_model, validate_model_access, generate_text
 
 MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10 MB
 ALLOWED_IMAGE_TYPES = {'image/jpeg', 'image/png', 'image/gif', 'image/webp'}
@@ -178,18 +179,19 @@ def generate_post(request):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    if not settings.ANTHROPIC_API_KEY:
-        return Response(
-            {'error': 'ANTHROPIC_API_KEY is not configured'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+    # Résoudre et valider le modèle IA
+    requested_model = request.data.get('model')
+    user_plan = get_user_plan(request.user)
+    model_id = resolve_model(requested_model, user_plan)
+    is_allowed, model_error = validate_model_access(model_id, user_plan)
+    if not is_allowed:
+        return Response({'error': model_error}, status=status.HTTP_403_FORBIDDEN)
 
     try:
-        client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
-
-        # Étape 1: Analyser les images si présentes
+        # Étape 1: Analyser les images si présentes (toujours via Claude)
         image_context = None
         if images:
+            client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
             image_context = analyze_images_with_vision(client, images)
 
         # Construire le contexte final
@@ -246,16 +248,12 @@ CONTRAINTES :
         if user_context:
             system_prompt += f"\n\n{user_context}"
 
-        message = client.messages.create(
-            model="claude-sonnet-4-20250514",
+        generated_content = generate_text(
+            model_id=model_id,
+            system_prompt=system_prompt,
+            user_message=f"Voici le contexte à transformer en post LinkedIn :\n\n{full_context}",
             max_tokens=1024,
-            system=system_prompt,
-            messages=[
-                {"role": "user", "content": f"Voici le contexte à transformer en post LinkedIn :\n\n{full_context}"}
-            ]
         )
-
-        generated_content = message.content[0].text
 
         # Extraire les hashtags du post
         body, hashtags = extract_hashtags(generated_content)
@@ -279,21 +277,12 @@ CONTRAINTES :
             'image_analysis': image_context
         })
 
-    except anthropic.RateLimitError:
-        return Response(
-            {'error': 'Trop de requêtes, réessayez dans un moment.'},
-            status=status.HTTP_429_TOO_MANY_REQUESTS
-        )
-    except anthropic.AuthenticationError:
-        return Response(
-            {'error': 'Clé API Anthropic invalide ou expirée.'},
-            status=status.HTTP_401_UNAUTHORIZED
-        )
     except Exception as e:
-        return Response(
-            {'error': str(e)},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+        error_msg = str(e)
+        if 'rate' in error_msg.lower() or '429' in error_msg:
+            return Response({'error': 'Trop de requêtes, réessayez dans un moment.'},
+                            status=status.HTTP_429_TOO_MANY_REQUESTS)
+        return Response({'error': error_msg}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @api_view(['POST'])
@@ -339,18 +328,19 @@ def generate_variants(request):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    if not settings.ANTHROPIC_API_KEY:
-        return Response(
-            {'error': 'ANTHROPIC_API_KEY is not configured'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+    # Résoudre et valider le modèle IA
+    requested_model = request.data.get('model')
+    user_plan = get_user_plan(request.user)
+    model_id = resolve_model(requested_model, user_plan)
+    is_allowed, model_error = validate_model_access(model_id, user_plan)
+    if not is_allowed:
+        return Response({'error': model_error}, status=status.HTTP_403_FORBIDDEN)
 
     try:
-        client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
-
-        # Analyser les images si présentes
+        # Analyser les images si présentes (toujours via Claude)
         image_context = None
         if images:
+            client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
             image_context = analyze_images_with_vision(client, images)
 
         # Construire le contexte
@@ -399,17 +389,12 @@ Retourne UNIQUEMENT les posts, sans introduction ni commentaire."""
         if user_context:
             system_prompt += f"\n\n{user_context}"
 
-        message = client.messages.create(
-            model="claude-sonnet-4-20250514",
+        raw_content = generate_text(
+            model_id=model_id,
+            system_prompt=system_prompt,
+            user_message=f"Voici le contexte à transformer en posts LinkedIn :\n\n{full_context}",
             max_tokens=4096,
-            system=system_prompt,
-            messages=[
-                {"role": "user", "content": f"Voici le contexte à transformer en posts LinkedIn :\n\n{full_context}"}
-            ]
         )
-
-        # Parser les variantes
-        raw_content = message.content[0].text
         raw_variants = [v.strip() for v in raw_content.split("---VARIANTE---") if v.strip()]
 
         # Extraire les hashtags de chaque variante
@@ -436,15 +421,12 @@ Retourne UNIQUEMENT les posts, sans introduction ni commentaire."""
         recommended_index = 0
         if len(variants) > 1:
             try:
-                rec_message = client.messages.create(
-                    model="claude-sonnet-4-20250514",
+                rec_text = generate_text(
+                    model_id=model_id,
+                    system_prompt="Tu es un expert LinkedIn. Analyse ces variantes de post et indique le NUMÉRO (1, 2, ou 3) de celle qui aura le meilleur engagement. Réponds UNIQUEMENT avec le numéro.",
+                    user_message="\n\n---\n\n".join([f"Variante {i+1}:\n{v}" for i, v in enumerate(variants)]),
                     max_tokens=50,
-                    system="Tu es un expert LinkedIn. Analyse ces variantes de post et indique le NUMÉRO (1, 2, ou 3) de celle qui aura le meilleur engagement. Réponds UNIQUEMENT avec le numéro.",
-                    messages=[
-                        {"role": "user", "content": "\n\n---\n\n".join([f"Variante {i+1}:\n{v}" for i, v in enumerate(variants)])}
-                    ]
-                )
-                rec_text = rec_message.content[0].text.strip()
+                ).strip()
                 for char in rec_text:
                     if char.isdigit():
                         idx = int(char) - 1
@@ -464,21 +446,12 @@ Retourne UNIQUEMENT les posts, sans introduction ni commentaire."""
             'recommended_index': recommended_index,
         })
 
-    except anthropic.RateLimitError:
-        return Response(
-            {'error': 'Trop de requêtes, réessayez dans un moment.'},
-            status=status.HTTP_429_TOO_MANY_REQUESTS
-        )
-    except anthropic.AuthenticationError:
-        return Response(
-            {'error': 'Clé API Anthropic invalide ou expirée.'},
-            status=status.HTTP_401_UNAUTHORIZED
-        )
     except Exception as e:
-        return Response(
-            {'error': str(e)},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+        error_msg = str(e)
+        if 'rate' in error_msg.lower() or '429' in error_msg:
+            return Response({'error': 'Trop de requêtes, réessayez dans un moment.'},
+                            status=status.HTTP_429_TOO_MANY_REQUESTS)
+        return Response({'error': error_msg}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @api_view(['POST'])
@@ -501,15 +474,15 @@ def regenerate_single_variant(request):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    if not settings.ANTHROPIC_API_KEY:
-        return Response(
-            {'error': 'ANTHROPIC_API_KEY is not configured'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+    # Résoudre et valider le modèle IA
+    requested_model = request.data.get('model')
+    user_plan = get_user_plan(request.user)
+    model_id = resolve_model(requested_model, user_plan)
+    is_allowed, model_error = validate_model_access(model_id, user_plan)
+    if not is_allowed:
+        return Response({'error': model_error}, status=status.HTTP_403_FORBIDDEN)
 
     try:
-        client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
-
         other_variants = [v for i, v in enumerate(existing_variants) if i != variant_index]
         avoid_context = ""
         if other_variants:
@@ -541,16 +514,12 @@ CONTRAINTES :
         if user_context:
             system_prompt += f"\n\n{user_context}"
 
-        message = client.messages.create(
-            model="claude-sonnet-4-20250514",
+        raw_content = generate_text(
+            model_id=model_id,
+            system_prompt=system_prompt,
+            user_message=f"Contexte :\n{summary}{avoid_context}",
             max_tokens=1024,
-            system=system_prompt,
-            messages=[
-                {"role": "user", "content": f"Contexte :\n{summary}{avoid_context}"}
-            ]
         )
-
-        raw_content = message.content[0].text
         body, tags = extract_hashtags(raw_content)
 
         return Response({
@@ -559,10 +528,11 @@ CONTRAINTES :
             'variant_index': variant_index,
         })
 
-    except anthropic.RateLimitError:
-        return Response({'error': 'Trop de requêtes'}, status=status.HTTP_429_TOO_MANY_REQUESTS)
     except Exception as e:
-        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        error_msg = str(e)
+        if 'rate' in error_msg.lower() or '429' in error_msg:
+            return Response({'error': 'Trop de requêtes'}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+        return Response({'error': error_msg}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @api_view(['POST'])
@@ -576,11 +546,15 @@ def generate_first_comment(request):
     if not content:
         return Response({'error': 'Le contenu du post est requis'}, status=status.HTTP_400_BAD_REQUEST)
 
-    if not settings.ANTHROPIC_API_KEY:
-        return Response({'error': 'ANTHROPIC_API_KEY is not configured'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    # Résoudre et valider le modèle IA
+    requested_model = request.data.get('model')
+    user_plan = get_user_plan(request.user)
+    model_id = resolve_model(requested_model, user_plan)
+    is_allowed, model_error = validate_model_access(model_id, user_plan)
+    if not is_allowed:
+        return Response({'error': model_error}, status=status.HTTP_403_FORBIDDEN)
 
     try:
-        client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
         user_context = get_user_context(request)
 
         system_prompt = f"""Tu es un expert LinkedIn qui écrit des premiers commentaires stratégiques.
@@ -600,26 +574,23 @@ RÈGLES:
 
 {user_context}"""
 
-        message = client.messages.create(
-            model="claude-sonnet-4-20250514",
+        comment = generate_text(
+            model_id=model_id,
+            system_prompt=system_prompt,
+            user_message=f"Écris un premier commentaire stratégique pour ce post LinkedIn :\n\n{content}",
             max_tokens=300,
-            system=system_prompt,
-            messages=[
-                {"role": "user", "content": f"Écris un premier commentaire stratégique pour ce post LinkedIn :\n\n{content}"}
-            ]
-        )
-
-        comment = message.content[0].text.strip()
+        ).strip()
         for char in ['"', '\u201c', '\u201d', '\u00ab', '\u00bb']:
             if comment.startswith(char) and comment.endswith(char):
                 comment = comment[1:-1]
 
         return Response({'comment': comment})
 
-    except anthropic.RateLimitError:
-        return Response({'error': 'Trop de requêtes'}, status=status.HTTP_429_TOO_MANY_REQUESTS)
     except Exception as e:
-        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        error_msg = str(e)
+        if 'rate' in error_msg.lower() or '429' in error_msg:
+            return Response({'error': 'Trop de requêtes'}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+        return Response({'error': error_msg}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @api_view(['GET'])
@@ -723,46 +694,33 @@ def suggest_hashtags(request):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    if not settings.ANTHROPIC_API_KEY:
-        return Response(
-            {'error': 'ANTHROPIC_API_KEY is not configured'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+    # Résoudre et valider le modèle IA
+    requested_model = request.data.get('model')
+    user_plan = get_user_plan(request.user)
+    model_id = resolve_model(requested_model, user_plan)
+    is_allowed, model_error = validate_model_access(model_id, user_plan)
+    if not is_allowed:
+        return Response({'error': model_error}, status=status.HTTP_403_FORBIDDEN)
 
     try:
-        client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
-
-        message = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=256,
-            system="""Tu es un expert LinkedIn. Suggère 5-8 hashtags pertinents pour le post fourni.
+        raw = generate_text(
+            model_id=model_id,
+            system_prompt="""Tu es un expert LinkedIn. Suggère 5-8 hashtags pertinents pour le post fourni.
 Retourne UNIQUEMENT les hashtags, un par ligne, commençant par #.
 Choisis des hashtags populaires sur LinkedIn, en français et en anglais.""",
-            messages=[
-                {"role": "user", "content": f"Suggère des hashtags pour ce post LinkedIn :\n\n{content}"}
-            ]
+            user_message=f"Suggère des hashtags pour ce post LinkedIn :\n\n{content}",
+            max_tokens=256,
         )
-
-        raw = message.content[0].text
         hashtags = [tag.strip() for tag in raw.split('\n') if tag.strip().startswith('#')]
 
         return Response({'hashtags': hashtags})
 
-    except anthropic.RateLimitError:
-        return Response(
-            {'error': 'Trop de requêtes, réessayez dans un moment.'},
-            status=status.HTTP_429_TOO_MANY_REQUESTS
-        )
-    except anthropic.AuthenticationError:
-        return Response(
-            {'error': 'Clé API Anthropic invalide ou expirée.'},
-            status=status.HTTP_401_UNAUTHORIZED
-        )
     except Exception as e:
-        return Response(
-            {'error': str(e)},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+        error_msg = str(e)
+        if 'rate' in error_msg.lower() or '429' in error_msg:
+            return Response({'error': 'Trop de requêtes, réessayez dans un moment.'},
+                            status=status.HTTP_429_TOO_MANY_REQUESTS)
+        return Response({'error': error_msg}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @api_view(['POST'])
@@ -784,15 +742,15 @@ def regenerate_hook(request):
     if tone not in valid_tones:
         tone = 'professionnel'
 
-    if not settings.ANTHROPIC_API_KEY:
-        return Response(
-            {'error': 'ANTHROPIC_API_KEY is not configured'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+    # Résoudre et valider le modèle IA
+    requested_model = request.data.get('model')
+    user_plan = get_user_plan(request.user)
+    model_id = resolve_model(requested_model, user_plan)
+    is_allowed, model_error = validate_model_access(model_id, user_plan)
+    if not is_allowed:
+        return Response({'error': model_error}, status=status.HTTP_403_FORBIDDEN)
 
     try:
-        client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
-
         system_prompt = f"""Tu es un ghostwriter LinkedIn d'élite, spécialiste des hooks (phrases d'accroche).
 
 Tu dois générer UNE SEULE nouvelle phrase d'accroche pour un post LinkedIn existant.
@@ -826,29 +784,20 @@ Retourne UNIQUEMENT la phrase d'accroche, rien d'autre. Pas de guillemets."""
         if current_hook:
             avoid_text = f"\n\nHook actuel (génère quelque chose de DIFFÉRENT) : {current_hook}"
 
-        message = client.messages.create(
-            model="claude-sonnet-4-20250514",
+        hook = generate_text(
+            model_id=model_id,
+            system_prompt=system_prompt,
+            user_message=f"Voici le post LinkedIn (sans le hook) :\n\n{content}{avoid_text}",
             max_tokens=100,
-            system=system_prompt,
-            messages=[
-                {"role": "user", "content": f"Voici le post LinkedIn (sans le hook) :\n\n{content}{avoid_text}"}
-            ]
-        )
-
-        hook = message.content[0].text.strip()
+        ).strip()
         # Nettoyer : enlever les guillemets si l'IA en met
         for char in ['"', "'", '\u201c', '\u201d', '\u00ab', '\u00bb']:
             hook = hook.strip(char)
 
         return Response({'hook': hook})
 
-    except anthropic.RateLimitError:
-        return Response(
-            {'error': 'Trop de requêtes'},
-            status=status.HTTP_429_TOO_MANY_REQUESTS
-        )
     except Exception as e:
-        return Response(
-            {'error': str(e)},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+        error_msg = str(e)
+        if 'rate' in error_msg.lower() or '429' in error_msg:
+            return Response({'error': 'Trop de requêtes'}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+        return Response({'error': error_msg}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

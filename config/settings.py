@@ -219,6 +219,9 @@ PEXELS_API_KEY = os.getenv('PEXELS_API_KEY', '')
 # Google AI (Gemini)
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY', '')
 
+# OpenAI
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
+
 # Hugging Face
 HF_TOKEN = os.getenv('HF_TOKEN', '')
 
