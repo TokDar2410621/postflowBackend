@@ -7,7 +7,12 @@ load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
+SECRET_KEY = os.getenv('SECRET_KEY')
+if not SECRET_KEY:
+    if os.getenv('DEBUG', 'False').lower() == 'true':
+        SECRET_KEY = 'dev-secret-key-for-local-dev-only'
+    else:
+        raise ValueError("SECRET_KEY environment variable is required in production")
 
 DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
 
@@ -157,8 +162,7 @@ CORS_ALLOW_HEADERS = [
 CSRF_TRUSTED_ORIGINS = [
     origin.strip()
     for origin in os.getenv(
-        'CSRF_TRUSTED_ORIGINS',
-        'http://localhost:8080,http://127.0.0.1:8080'
+        'CSRF_TRUSTED_ORIGINS',    
     ).split(',')
     if origin.strip()
 ]
@@ -183,10 +187,15 @@ REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ],
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+    ],
     'DEFAULT_THROTTLE_RATES': {
         'login': '5/minute',
         'register': '3/hour',
         'password_reset': '3/hour',
+        'anon': '20/hour',
+        'ai_generation': '30/hour',
     },
 }
 
