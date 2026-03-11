@@ -96,6 +96,7 @@ urlpatterns = [
     path('convert/to-post/', convert.convert_to_post, name='convert_to_post'),
 
     # Cartoon Dialogue
+    path('cartoon-dialogue/avatar/', cartoon.get_avatar, name='get_cartoon_avatar'),
     path('cartoon-dialogue/generate-avatar/', cartoon.generate_avatar, name='generate_cartoon_avatar'),
     path('cartoon-dialogue/validate-avatar/', cartoon.validate_avatar, name='validate_cartoon_avatar'),
     path('cartoon-dialogue/regenerate-avatar/', cartoon.regenerate_avatar, name='regenerate_cartoon_avatar'),

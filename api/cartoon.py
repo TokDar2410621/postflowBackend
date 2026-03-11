@@ -188,6 +188,21 @@ Réponds UNIQUEMENT avec du JSON valide, sans markdown :
 
 # ========== Endpoints ==========
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_avatar(request):
+    """Retourne l'avatar cartoon sauvegardé (s'il existe)."""
+    try:
+        cached = CartoonAvatar.objects.get(user=request.user)
+        return Response({
+            'avatar': cached.avatar_base64,
+            'mime_type': cached.avatar_mime_type,
+            'description': cached.appearance_description,
+        })
+    except CartoonAvatar.DoesNotExist:
+        return Response({'avatar': None})
+
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def generate_avatar(request):
