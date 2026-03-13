@@ -168,9 +168,21 @@ class PublishedPost(models.Model):
         return round(((self.likes + self.comments + self.shares) / self.views) * 100, 2)
 
 
+CONTENT_MODE_CHOICES = [
+    ('audience_growth', "Création d'audience"),
+    ('job_search', 'Recherche emploi'),
+]
+
+
 class UserProfile(models.Model):
     """Profil utilisateur avec contexte pour la génération IA"""
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
+    content_mode = models.CharField(
+        max_length=20,
+        choices=CONTENT_MODE_CHOICES,
+        default='audience_growth',
+        verbose_name="Mode de contenu",
+    )
     role = models.CharField(max_length=200, blank=True, verbose_name="Rôle / Poste")
     industry = models.CharField(max_length=200, blank=True, verbose_name="Secteur d'activité")
     expertise = models.TextField(blank=True, verbose_name="Domaines d'expertise")
@@ -214,6 +226,10 @@ class UserProfile(models.Model):
             parts.append(f"\nEXEMPLES DE POSTS QUE L'AUTEUR APPRÉCIE :\n{self.example_posts}")
         if self.additional_context:
             parts.append(f"\nCONTEXTE ADDITIONNEL :\n{self.additional_context}")
+        if self.content_mode == 'job_search':
+            parts.append("\n🎯 Objectif LinkedIn : RECHERCHE D'EMPLOI — Le contenu doit positionner l'auteur comme expert, attirer les recruteurs et démontrer ses compétences.")
+        else:
+            parts.append("\n🎯 Objectif LinkedIn : CRÉATION D'AUDIENCE — Le contenu doit maximiser le reach, l'engagement et les partages.")
         parts.append("\nAdapte le post à ce profil. Utilise un vocabulaire et des exemples cohérents avec son secteur et son audience.")
         return "\n".join(parts)
 

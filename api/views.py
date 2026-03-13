@@ -6,7 +6,7 @@ from django.conf import settings
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import api_view, parser_classes, permission_classes
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.response import Response
 import anthropic
@@ -19,6 +19,7 @@ from .llm import get_user_plan, resolve_model, validate_model_access, generate_t
 MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10 MB
 ALLOWED_IMAGE_TYPES = {'image/jpeg', 'image/png', 'image/gif', 'image/webp'}
 MAX_IMAGES = 5
+MAX_PROMPT_LENGTH = 5000  # Max characters for user text inputs
 
 
 def validate_uploaded_images(images):
@@ -43,6 +44,38 @@ def get_user_context(request):
         return profile.build_prompt_context()
     except UserProfile.DoesNotExist:
         return ""
+
+
+def get_content_mode(request):
+    """Renvoie le mode de contenu : depuis la request ou le profil utilisateur."""
+    mode = request.data.get('mode')
+    if mode in ('audience_growth', 'job_search'):
+        return mode
+    if request.user.is_authenticated:
+        try:
+            return request.user.profile.content_mode
+        except UserProfile.DoesNotExist:
+            pass
+    return 'audience_growth'
+
+
+POST_MODE_INSTRUCTIONS = {
+    "job_search": """
+OBJECTIF : RECHERCHE D'EMPLOI
+- Le hook doit démontrer une expertise concrète ou un résultat professionnel
+- Utilise un CTA orienté opportunités : "Je suis ouvert aux nouvelles opportunités", "N'hésitez pas à me contacter", "Mon DM est ouvert"
+- Mets en avant : compétences techniques, résultats mesurables, apprentissages de carrière
+- Ton personal branding : positionne l'auteur comme un expert crédible dans son domaine
+- Utilise des mots-clés recherchés par les recruteurs : impact, résultats, expertise, leadership
+- Structure : problème rencontré → solution apportée → leçon apprise""",
+    "audience_growth": """
+OBJECTIF : CRÉATION D'AUDIENCE / VIRALITÉ
+- Le hook doit être percutant et créer un pattern interrupt (curiosité, controverse douce, chiffre choc)
+- Utilise un CTA orienté engagement : "Follow pour plus de contenu comme ça", "Enregistre ce post", "Partage si tu es d'accord", "Commente ta vision"
+- Optimise pour le reach : phrases courtes, espaces blancs, rythme dynamique
+- Provoque la réaction : questions ouvertes, prises de position, formats tendance
+- Structure : hook viral → valeur immédiate → engagement CTA""",
+}
 
 
 def extract_hashtags(content):
@@ -135,16 +168,15 @@ Réponds en français."""
 
 
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 @parser_classes([MultiPartParser, FormParser, JSONParser])
 def generate_post(request):
     """Génère un post LinkedIn à partir d'un résumé et/ou d'images"""
 
     # Vérifier la limite de générations
-    if request.user.is_authenticated:
-        can_generate, error_response = check_generation_limit(request.user)
-        if not can_generate:
-            return error_response
+    can_generate, error_response = check_generation_limit(request.user)
+    if not can_generate:
+        return error_response
 
     # Récupérer les données
     summary = request.data.get('summary', '')
@@ -171,6 +203,13 @@ def generate_post(request):
     valid_tones = ['professionnel', 'inspirant', 'storytelling', 'educatif', 'humoristique']
     if tone not in valid_tones:
         tone = 'professionnel'
+
+    # Vérifier la longueur du résumé
+    if len(summary) > MAX_PROMPT_LENGTH:
+        return Response(
+            {'error': f'Le résumé est trop long ({len(summary)} caractères). Maximum: {MAX_PROMPT_LENGTH}.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
 
     # Vérifier qu'on a au moins un résumé ou des images
     if not summary.strip() and not images:
@@ -244,6 +283,9 @@ CONTRAINTES :
 - Retourne UNIQUEMENT le post, sans commentaire ni explication
 - Écris comme un humain, pas comme un robot corporate"""
 
+        mode = get_content_mode(request)
+        system_prompt += f"\n{POST_MODE_INSTRUCTIONS[mode]}"
+
         user_context = get_user_context(request)
         if user_context:
             system_prompt += f"\n\n{user_context}"
@@ -259,10 +301,8 @@ CONTRAINTES :
         body, hashtags = extract_hashtags(generated_content)
 
         # Sauvegarder en base de données (contenu complet avec hashtags)
-        session_key = request.data.get('session_key', '')
         post = GeneratedPost.objects.create(
-            user=request.user if request.user.is_authenticated else None,
-            session_key=session_key if not request.user.is_authenticated else '',
+            user=request.user,
             summary=summary if summary.strip() else (image_context[:500] if image_context else ''),
             tone=tone,
             generated_content=generated_content
@@ -282,20 +322,21 @@ CONTRAINTES :
         if 'rate' in error_msg.lower() or '429' in error_msg:
             return Response({'error': 'Trop de requêtes, réessayez dans un moment.'},
                             status=status.HTTP_429_TOO_MANY_REQUESTS)
-        return Response({'error': error_msg}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        import logging
+        logging.getLogger('api').error(f"generate_post error: {e}")
+        return Response({'error': 'Erreur interne lors de la génération.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 @parser_classes([MultiPartParser, FormParser, JSONParser])
 def generate_variants(request):
     """Génère plusieurs variantes d'un post LinkedIn"""
 
     # Vérifier la limite de générations
-    if request.user.is_authenticated:
-        can_generate, error_response = check_generation_limit(request.user)
-        if not can_generate:
-            return error_response
+    can_generate, error_response = check_generation_limit(request.user)
+    if not can_generate:
+        return error_response
 
     summary = request.data.get('summary', '')
     tone = request.data.get('tone', 'professionnel')
@@ -406,12 +447,10 @@ Retourne UNIQUEMENT les posts, sans introduction ni commentaire."""
             variants_hashtags.append(tags)
 
         # Sauvegarder la première variante comme post principal
-        session_key = request.data.get('session_key', '')
         post = None
         if raw_variants:
             post = GeneratedPost.objects.create(
-                user=request.user if request.user.is_authenticated else None,
-                session_key=session_key if not request.user.is_authenticated else '',
+                user=request.user,
                 summary=summary if summary.strip() else (image_context[:500] if image_context else ''),
                 tone=tone,
                 generated_content=raw_variants[0]
@@ -451,11 +490,13 @@ Retourne UNIQUEMENT les posts, sans introduction ni commentaire."""
         if 'rate' in error_msg.lower() or '429' in error_msg:
             return Response({'error': 'Trop de requêtes, réessayez dans un moment.'},
                             status=status.HTTP_429_TOO_MANY_REQUESTS)
-        return Response({'error': error_msg}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        import logging
+        logging.getLogger('api').error(f"generate_variants error: {e}")
+        return Response({'error': 'Erreur interne lors de la génération.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 @parser_classes([JSONParser])
 def regenerate_single_variant(request):
     """Régénère une seule variante d'un post LinkedIn"""
@@ -532,11 +573,13 @@ CONTRAINTES :
         error_msg = str(e)
         if 'rate' in error_msg.lower() or '429' in error_msg:
             return Response({'error': 'Trop de requêtes'}, status=status.HTTP_429_TOO_MANY_REQUESTS)
-        return Response({'error': error_msg}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        import logging
+        logging.getLogger('api').error(f"regenerate_single_variant error: {e}")
+        return Response({'error': 'Erreur interne lors de la génération.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 @parser_classes([JSONParser])
 def generate_first_comment(request):
     """Generate an AI-suggested first comment for a LinkedIn post."""
@@ -590,19 +633,15 @@ RÈGLES:
         error_msg = str(e)
         if 'rate' in error_msg.lower() or '429' in error_msg:
             return Response({'error': 'Trop de requêtes'}, status=status.HTTP_429_TOO_MANY_REQUESTS)
-        return Response({'error': error_msg}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        import logging
+        logging.getLogger('api').error(f"generate_first_comment error: {e}")
+        return Response({'error': 'Erreur interne.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def list_posts(request):
-    if request.user.is_authenticated:
-        posts = GeneratedPost.objects.filter(user=request.user)
-    else:
-        session_key = request.query_params.get('session_key', '')
-        if not session_key:
-            return Response([])
-        posts = GeneratedPost.objects.filter(session_key=session_key, user__isnull=True)
+    posts = GeneratedPost.objects.filter(user=request.user)
 
     # Filter by tone
     tone = request.query_params.get('tone')
@@ -664,14 +703,10 @@ def list_published_posts(request):
 
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def get_post(request, pk):
     try:
-        if request.user.is_authenticated:
-            post = GeneratedPost.objects.get(pk=pk, user=request.user)
-        else:
-            session_key = request.query_params.get('session_key', '')
-            post = GeneratedPost.objects.get(pk=pk, session_key=session_key, user__isnull=True)
+        post = GeneratedPost.objects.get(pk=pk, user=request.user)
         serializer = GeneratedPostSerializer(post)
         return Response(serializer.data)
     except GeneratedPost.DoesNotExist:
@@ -682,7 +717,7 @@ def get_post(request, pk):
 
 
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 @parser_classes([JSONParser])
 def suggest_hashtags(request):
     """Suggère des hashtags pertinents pour un post donné"""
@@ -720,11 +755,13 @@ Choisis des hashtags populaires sur LinkedIn, en français et en anglais.""",
         if 'rate' in error_msg.lower() or '429' in error_msg:
             return Response({'error': 'Trop de requêtes, réessayez dans un moment.'},
                             status=status.HTTP_429_TOO_MANY_REQUESTS)
-        return Response({'error': error_msg}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        import logging
+        logging.getLogger('api').error(f"suggest_hashtags error: {e}")
+        return Response({'error': 'Erreur interne.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 @parser_classes([JSONParser])
 def regenerate_hook(request):
     """Régénère uniquement le hook (première ligne) d'un post LinkedIn"""
@@ -800,4 +837,6 @@ Retourne UNIQUEMENT la phrase d'accroche, rien d'autre. Pas de guillemets."""
         error_msg = str(e)
         if 'rate' in error_msg.lower() or '429' in error_msg:
             return Response({'error': 'Trop de requêtes'}, status=status.HTTP_429_TOO_MANY_REQUESTS)
-        return Response({'error': error_msg}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        import logging
+        logging.getLogger('api').error(f"regenerate_hook error: {e}")
+        return Response({'error': 'Erreur interne.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

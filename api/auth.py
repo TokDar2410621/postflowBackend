@@ -147,6 +147,9 @@ def profile(request):
         for field in fields:
             if field in kb:
                 setattr(user_profile, field, kb[field])
+        content_mode = request.data.get('content_mode')
+        if content_mode in ('audience_growth', 'job_search'):
+            user_profile.content_mode = content_mode
         user_profile.save()
         return Response({'message': 'Profil mis à jour avec succès', 'knowledge_base': _serialize_profile(user_profile)})
 
@@ -166,6 +169,7 @@ def profile(request):
         'email': user.email,
         'linkedin_connected': linkedin_connected,
         'linkedin_name': linkedin_name,
+        'content_mode': user_profile.content_mode,
         'knowledge_base': _serialize_profile(user_profile),
         'subscription': {
             'plan': sub.plan,

@@ -3,19 +3,34 @@ import logging
 from datetime import datetime
 
 from rest_framework.decorators import api_view, parser_classes, permission_classes
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import JSONParser
 from rest_framework.response import Response
 from rest_framework import status
 from django.conf import settings
 import anthropic
 
-from .views import get_user_context
+from .views import get_user_context, get_content_mode
 from .billing import check_generation_limit, increment_usage
 
 logger = logging.getLogger(__name__)
 
 VALID_SLIDE_TYPES = {'title', 'content', 'quote', 'cta', 'dialogue', 'stats', 'comparison', 'list', 'image_text', 'highlight'}
+
+CAROUSEL_MODE_INSTRUCTIONS = {
+    "job_search": """
+OBJECTIF : RECHERCHE D'EMPLOI
+- Slide titre : hook qui démontre une expertise ("Comment j'ai [résultat concret] en [durée]")
+- Contenu : focus sur compétences, méthodologie, résultats chiffrés
+- Slide CTA : "Contactez-moi", "Ouvert aux opportunités", lien profil
+- Ton expert et crédible, évite le clickbait""",
+    "audience_growth": """
+OBJECTIF : CRÉATION D'AUDIENCE / VIRALITÉ
+- Slide titre : hook viral, curiosité maximale, chiffre ou controverse
+- Contenu : valeur actionnable, astuces concrètes, format facile à consommer
+- Slide CTA : "Follow pour plus", "Enregistre ce carrousel", "Partage"
+- Rythme dynamique, phrases punchy, chaque slide donne envie de swiper""",
+}
 
 
 def validate_slides(slides):
@@ -82,14 +97,13 @@ TEMPLATE_INSTRUCTIONS = {
 
 
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 @parser_classes([JSONParser])
 def generate_carousel(request):
     # Vérifier la limite de générations
-    if request.user.is_authenticated:
-        can_generate, error_response = check_generation_limit(request.user)
-        if not can_generate:
-            return error_response
+    can_generate, error_response = check_generation_limit(request.user)
+    if not can_generate:
+        return error_response
 
     topic = request.data.get('topic', '').strip()
     tone = request.data.get('tone', 'professionnel')
@@ -102,10 +116,13 @@ def generate_carousel(request):
     num_slides = max(5, min(10, int(num_slides)))
 
     user_context = get_user_context(request)
+    mode = get_content_mode(request)
 
     template_block = ""
     if template and template in TEMPLATE_INSTRUCTIONS:
         template_block = f"\n\n{TEMPLATE_INSTRUCTIONS[template]}\n"
+
+    mode_block = CAROUSEL_MODE_INSTRUCTIONS.get(mode, CAROUSEL_MODE_INSTRUCTIONS["audience_growth"])
 
     system_prompt = f"""Tu es un expert en creation de carousels LinkedIn viraux.
 Tu generes le contenu structure d'un carousel au format JSON strict.
@@ -139,6 +156,8 @@ QUAND UTILISER CHAQUE TYPE DE SLIDE:
 - "dialogue" : echange Q&A en bulles de chat
 - "image_text" : texte + espace image (utiliser pour slides visuelles)
 {template_block}
+{mode_block}
+
 SCHEMA JSON A RESPECTER (exemples de chaque type):
 {{
   "slides": [
@@ -217,7 +236,7 @@ SCHEMA JSON A RESPECTER (exemples de chaque type):
 
 
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 @parser_classes([JSONParser])
 def generate_carousel_caption(request):
     slides = request.data.get('slides', [])
