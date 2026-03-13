@@ -15,6 +15,7 @@ from . import repurpose
 from . import convert
 from . import billing
 from . import cartoon
+from . import pdf_views
 
 urlpatterns = [
     # Auth
@@ -94,6 +95,10 @@ urlpatterns = [
     path('convert/to-carousel/', convert.convert_to_carousel, name='convert_to_carousel'),
     path('convert/to-infographic/', convert.convert_to_infographic, name='convert_to_infographic'),
     path('convert/to-post/', convert.convert_to_post, name='convert_to_post'),
+
+    # PDF Export (Playwright server-side)
+    path('carousel/export-pdf/', pdf_views.export_carousel_pdf, name='export_carousel_pdf'),
+    path('cartoon-dialogue/export-pdf/', pdf_views.export_cartoon_pdf, name='export_cartoon_pdf'),
 
     # Cartoon Dialogue
     path('cartoon-dialogue/avatar/', cartoon.get_avatar, name='get_cartoon_avatar'),
