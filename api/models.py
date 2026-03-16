@@ -327,3 +327,28 @@ class UsageRecord(models.Model):
 
     def __str__(self):
         return f"{self.user.username} - {self.year}/{self.month}: {self.generation_count}"
+
+
+class SavedDraft(models.Model):
+    """Brouillon de post sauvegardé (variante, idée extraite, etc.)"""
+    SOURCE_CHOICES = [
+        ('variant', 'Variante'),
+        ('generated', 'Post généré'),
+        ('extracted', 'Idée extraite'),
+    ]
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='saved_drafts')
+    title = models.CharField(max_length=200)
+    content = models.TextField()
+    hashtags = models.JSONField(default=list, blank=True)
+    tone = models.CharField(max_length=20, blank=True)
+    source = models.CharField(max_length=30, choices=SOURCE_CHOICES, default='variant')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = "Brouillon sauvegardé"
+        verbose_name_plural = "Brouillons sauvegardés"
+
+    def __str__(self):
+        return f"Draft {self.id} - {self.title[:50]}"

@@ -11,7 +11,7 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.response import Response
 import anthropic
 
-from .models import GeneratedPost, PublishedPost, PromptTemplate, UserProfile
+from .models import GeneratedPost, PublishedPost, PromptTemplate, UserProfile, SavedDraft
 from .serializers import GeneratePostSerializer, GeneratedPostSerializer
 from .billing import check_generation_limit, increment_usage
 from .llm import get_user_plan, resolve_model, validate_model_access, generate_text
@@ -840,3 +840,70 @@ Retourne UNIQUEMENT la phrase d'accroche, rien d'autre. Pas de guillemets."""
         import logging
         logging.getLogger('api').error(f"regenerate_hook error: {e}")
         return Response({'error': 'Erreur interne.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# ── Saved Drafts ────────────────────────────────────────────
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@parser_classes([JSONParser])
+def save_drafts(request):
+    """Sauvegarder un ou plusieurs brouillons."""
+    drafts_data = request.data.get('drafts', [])
+    if not drafts_data:
+        return Response({'error': 'Aucun brouillon fourni'}, status=status.HTTP_400_BAD_REQUEST)
+
+    created = []
+    for d in drafts_data[:10]:  # max 10 at once
+        content = d.get('content', '').strip()
+        if not content:
+            continue
+        title = content[:80].split('\n')[0].strip() or 'Brouillon'
+        draft = SavedDraft.objects.create(
+            user=request.user,
+            title=title,
+            content=content,
+            hashtags=d.get('hashtags', []),
+            tone=d.get('tone', ''),
+            source=d.get('source', 'variant'),
+        )
+        created.append({
+            'id': draft.id,
+            'title': draft.title,
+            'content': draft.content,
+            'hashtags': draft.hashtags,
+            'tone': draft.tone,
+            'source': draft.source,
+            'created_at': draft.created_at.isoformat(),
+        })
+
+    return Response({'saved': len(created), 'drafts': created}, status=status.HTTP_201_CREATED)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def list_drafts(request):
+    """Lister les brouillons sauvegardés."""
+    drafts = SavedDraft.objects.filter(user=request.user)[:50]
+    data = [{
+        'id': d.id,
+        'title': d.title,
+        'content': d.content,
+        'hashtags': d.hashtags,
+        'tone': d.tone,
+        'source': d.source,
+        'created_at': d.created_at.isoformat(),
+    } for d in drafts]
+    return Response(data)
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def delete_draft(request, pk):
+    """Supprimer un brouillon."""
+    try:
+        draft = SavedDraft.objects.get(pk=pk, user=request.user)
+        draft.delete()
+        return Response({'message': 'Brouillon supprimé'})
+    except SavedDraft.DoesNotExist:
+        return Response({'error': 'Brouillon introuvable'}, status=status.HTTP_404_NOT_FOUND)

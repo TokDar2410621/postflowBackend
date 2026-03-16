@@ -8,7 +8,7 @@ from django.conf import settings
 
 MODELS = {
     'mistral': {
-        'label': 'Mistral 7B',
+        'label': 'Mistral Nemo',
         'plans': ['free', 'pro', 'business'],
     },
     'claude': {
@@ -115,8 +115,11 @@ def _generate_openai(system_prompt, user_message, max_tokens):
 
 
 def _generate_mistral(system_prompt, user_message, max_tokens):
-    HF_API_URL = "https://router.huggingface.co/hf-inference/models/mistralai/Mistral-7B-Instruct-v0.3"
-    headers = {"Authorization": f"Bearer {settings.HF_TOKEN}"}
+    HF_API_URL = "https://router.huggingface.co/hf-inference/models/mistralai/Mistral-Nemo-Instruct-2407"
+    headers = {
+        "Authorization": f"Bearer {settings.HF_TOKEN}",
+        "Content-Type": "application/json",
+    }
 
     payload = {
         "inputs": f"<s>[INST] {system_prompt}\n\n{user_message} [/INST]",

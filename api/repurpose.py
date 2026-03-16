@@ -1,4 +1,5 @@
 import re
+import json
 import logging
 import ipaddress
 from urllib.parse import urlparse
@@ -211,6 +212,128 @@ RÈGLES:
         )
     except Exception as e:
         logger.error(f"Extract content error: {e}")
+        return Response(
+            {'error': 'Erreur interne'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@parser_classes([JSONParser])
+def extract_multi_posts(request):
+    """Extract 5-6 distinct post ideas from a URL (article, video, etc.)."""
+    url = request.data.get('url', '').strip()
+
+    if not url:
+        return Response({'error': 'URL requise'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if not url.startswith(('http://', 'https://')):
+        url = 'https://' + url
+
+    if not is_safe_url(url):
+        return Response({'error': 'URL non autorisée'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        resp = http_requests.get(
+            url,
+            timeout=15,
+            headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
+            },
+            allow_redirects=True,
+        )
+        resp.raise_for_status()
+    except http_requests.RequestException as e:
+        logger.error(f"URL fetch error: {e}")
+        return Response(
+            {'error': "Impossible d'accéder à l'URL"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    raw_html = resp.text
+    title = extract_title(raw_html)
+    text = extract_article_content(raw_html)
+    text = text[:8000]
+
+    if len(text) < 100:
+        meta = extract_meta(raw_html)
+        if meta:
+            text = f"{meta}\n\n{text}".strip()[:8000]
+
+    if len(text) < 50:
+        return Response(
+            {'error': "Contenu insuffisant extrait de l'URL"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if not settings.ANTHROPIC_API_KEY:
+        return Response(
+            {'error': 'ANTHROPIC_API_KEY is not configured'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    try:
+        client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+        user_context = get_user_context(request)
+
+        message = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=2500,
+            system=f"""Tu es un expert en content marketing LinkedIn.
+À partir du contenu fourni, extrais 5 à 6 idées de posts LinkedIn DISTINCTES.
+
+Pour chaque idée, fournis :
+- "angle": L'angle unique de ce post (1 phrase courte)
+- "hook": Un hook LinkedIn percutant prêt à l'emploi (la première ligne du post)
+- "key_points": 3-4 points clés à développer dans le post (liste de strings)
+- "tone_suggestion": Le ton recommandé parmi : professionnel, inspirant, storytelling, educatif, humoristique
+
+RÈGLES :
+- Chaque idée doit couvrir un ASPECT DIFFÉRENT du contenu source
+- Les hooks doivent être variés (chiffre choc, question provocante, histoire personnelle, confession, déclaration contre-intuitive)
+- Les angles doivent être suffisamment distincts pour créer 5-6 posts uniques
+- Retourne UNIQUEMENT du JSON valide sans markdown : {{ "ideas": [...] }}
+- Écris tout en français
+
+{user_context}""",
+            messages=[
+                {"role": "user", "content": f"Titre : {title}\n\nContenu :\n{text}"}
+            ],
+        )
+
+        raw = message.content[0].text.strip()
+        # Strip markdown fences if present
+        if raw.startswith('```'):
+            raw = raw.split('\n', 1)[1] if '\n' in raw else raw[3:]
+            if raw.endswith('```'):
+                raw = raw[:-3].strip()
+
+        data = json.loads(raw)
+        ideas = data.get('ideas', data if isinstance(data, list) else [])
+
+        return Response({
+            'ideas': ideas,
+            'source_url': url,
+            'title': title,
+        })
+
+    except json.JSONDecodeError:
+        logger.error("Failed to parse multi-post extraction JSON")
+        return Response(
+            {'error': "Erreur de parsing de la réponse IA. Réessayez."},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+    except anthropic.APIError as e:
+        logger.error(f"Anthropic API error (extract-ideas): {e}")
+        return Response(
+            {'error': 'Erreur API IA. Réessayez.'},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+    except Exception as e:
+        logger.error(f"Extract multi-posts error: {e}")
         return Response(
             {'error': 'Erreur interne'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,

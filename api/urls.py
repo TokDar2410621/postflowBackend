@@ -90,6 +90,12 @@ urlpatterns = [
     # Analytics
     # Repurpose (URL extraction)
     path('repurpose/extract/', repurpose.extract_url_content, name='extract_url_content'),
+    path('repurpose/extract-ideas/', repurpose.extract_multi_posts, name='extract_multi_posts'),
+
+    # Drafts (saved variants / ideas)
+    path('drafts/', views.list_drafts, name='list_drafts'),
+    path('drafts/save/', views.save_drafts, name='save_drafts'),
+    path('drafts/<int:pk>/', views.delete_draft, name='delete_draft'),
 
     # Convert between formats
     path('convert/to-carousel/', convert.convert_to_carousel, name='convert_to_carousel'),
