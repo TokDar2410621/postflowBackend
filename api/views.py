@@ -50,7 +50,7 @@ def get_user_context(request):
 def get_content_mode(request):
     """Renvoie le mode de contenu : depuis la request ou le profil utilisateur."""
     mode = request.data.get('mode')
-    if mode in ('audience_growth', 'job_search'):
+    if mode in ('audience_growth', 'job_search', 'lead_magnet'):
         return mode
     if request.user.is_authenticated:
         try:
@@ -76,6 +76,22 @@ OBJECTIF : CRÉATION D'AUDIENCE / VIRALITÉ
 - Optimise pour le reach : phrases courtes, espaces blancs, rythme dynamique
 - Provoque la réaction : questions ouvertes, prises de position, formats tendance
 - Structure : hook viral → valeur immédiate → engagement CTA""",
+    "lead_magnet": """
+OBJECTIF : LEAD MAGNET — GÉNÉRER DES COMMENTAIRES ET DES ABONNÉS
+- Le hook doit promettre une ressource/valeur concrète que le lecteur veut absolument obtenir
+- Le corps du post donne un APERÇU de la valeur (3-5 points concrets) pour prouver que la ressource vaut le coup
+- Le CTA DOIT être un échange : "Commente [MOT-CLÉ] et je t'envoie [RESSOURCE] en DM"
+- Exemples de CTA à utiliser :
+  • "Commente 'GUIDE' et je te l'envoie en DM"
+  • "Like + commente 'IA' → tu reçois le template complet"
+  • "Commente '🔥' et je t'envoie le PDF gratuitement"
+  • "Enregistre + commente 'TEMPLATE' pour recevoir le fichier"
+  • "Follow + commente 'OUI' → je t'envoie tout ça"
+- Le mot-clé à commenter doit être SIMPLE, COURT et en rapport avec le sujet (1 mot ou 1 emoji)
+- TOUJOURS mentionner que c'est GRATUIT
+- Structure : hook accrocheur → aperçu de la valeur (liste de ce que contient la ressource) → teaser ("et ce n'est qu'un extrait...") → CTA d'échange
+- Ajoute "Follow pour ne pas rater les prochaines ressources" en fin de post
+- Le post doit donner assez de valeur pour que le lecteur VEUILLE la ressource complète""",
 }
 
 
@@ -297,10 +313,14 @@ CONTRAINTES :
         if user_context:
             system_prompt += f"\n\n{user_context}"
 
+        user_message = f"Voici le contexte à transformer en post LinkedIn :\n\n{full_context}"
+        if web_context:
+            user_message += f"\n\n---\n{web_context}"
+
         generated_content = generate_text(
             model_id=model_id,
             system_prompt=system_prompt,
-            user_message=f"Voici le contexte à transformer en post LinkedIn :\n\n{full_context}",
+            user_message=user_message,
             max_tokens=1024,
         )
 
@@ -443,10 +463,14 @@ Retourne UNIQUEMENT les posts, sans introduction ni commentaire."""
         if user_context:
             system_prompt += f"\n\n{user_context}"
 
+        variants_user_message = f"Voici le contexte à transformer en posts LinkedIn :\n\n{full_context}"
+        if web_context:
+            variants_user_message += f"\n\n---\n{web_context}"
+
         raw_content = generate_text(
             model_id=model_id,
             system_prompt=system_prompt,
-            user_message=f"Voici le contexte à transformer en posts LinkedIn :\n\n{full_context}",
+            user_message=variants_user_message,
             max_tokens=4096,
         )
         raw_variants = [v.strip() for v in raw_content.split("---VARIANTE---") if v.strip()]

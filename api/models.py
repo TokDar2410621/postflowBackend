@@ -171,6 +171,7 @@ class PublishedPost(models.Model):
 CONTENT_MODE_CHOICES = [
     ('audience_growth', "Création d'audience"),
     ('job_search', 'Recherche emploi'),
+    ('lead_magnet', 'Lead magnet'),
 ]
 
 
@@ -228,6 +229,8 @@ class UserProfile(models.Model):
             parts.append(f"\nCONTEXTE ADDITIONNEL :\n{self.additional_context}")
         if self.content_mode == 'job_search':
             parts.append("\n🎯 Objectif LinkedIn : RECHERCHE D'EMPLOI — Le contenu doit positionner l'auteur comme expert, attirer les recruteurs et démontrer ses compétences.")
+        elif self.content_mode == 'lead_magnet':
+            parts.append("\n🧲 Objectif LinkedIn : LEAD MAGNET — Le contenu doit donner de la valeur, teaser une ressource, et pousser les gens à commenter pour la recevoir.")
         else:
             parts.append("\n🎯 Objectif LinkedIn : CRÉATION D'AUDIENCE — Le contenu doit maximiser le reach, l'engagement et les partages.")
         parts.append("\nAdapte le post à ce profil. Utilise un vocabulaire et des exemples cohérents avec son secteur et son audience.")

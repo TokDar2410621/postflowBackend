@@ -31,6 +31,13 @@ OBJECTIF : CRÉATION D'AUDIENCE / VIRALITÉ
 - Contenu : valeur actionnable, astuces concrètes, format facile à consommer
 - Slide CTA : "Follow pour plus", "Enregistre ce carrousel", "Partage"
 - Rythme dynamique, phrases punchy, chaque slide donne envie de swiper""",
+    "lead_magnet": """
+OBJECTIF : LEAD MAGNET — GÉNÉRER DES COMMENTAIRES ET DES ABONNÉS
+- Slide titre : hook qui promet une ressource gratuite ("Le guide complet pour...", "J'ai créé un template de...")
+- Contenu : aperçu partiel de la ressource (montre 3-4 points sur 10 par ex.)
+- Avant-dernière slide : teaser ("Et ce n'est qu'un extrait du guide complet...")
+- Slide CTA : "Commente [MOT-CLÉ] et je t'envoie le guide complet en DM" + "Follow pour les prochaines ressources gratuites"
+- Chaque slide doit donner envie d'avoir la ressource complète""",
 }
 
 
@@ -184,6 +191,8 @@ SCHEMA JSON A RESPECTER (exemples de chaque type):
         system_prompt += f"\n\n{web_context}"
 
     user_message = f"Cree un carousel LinkedIn de {num_slides} slides sur le sujet suivant:\n\n{topic}"
+    if web_context:
+        user_message += f"\n\n---\n{web_context}"
 
     try:
         client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)

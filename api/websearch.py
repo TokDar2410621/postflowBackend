@@ -137,7 +137,14 @@ def enrich_context(text: str) -> str:
     entities = extract_entities(text)
 
     if not entities:
-        return ""
+        # Fallback: if no entities extracted but text is short (likely a tool/product name),
+        # search for the whole text directly
+        words = text.strip().split()
+        if 1 <= len(words) <= 8:
+            entities = [text.strip()[:100]]
+            logger.info(f"Web search: no entities found, using full text as query: {entities}")
+        else:
+            return ""
 
     logger.info(f"Web search: checking entities {entities}")
 
@@ -148,15 +155,20 @@ def enrich_context(text: str) -> str:
         return ""
 
     # Step 3: Format as context block
-    lines = ["CONTEXTE VÉRIFIÉ PAR RECHERCHE WEB (utilise ces informations comme source de vérité) :"]
+    lines = [
+        "INFORMATIONS VÉRIFIÉES PAR RECHERCHE WEB — TU DOIS UTILISER CES FAITS COMME SOURCE DE VÉRITÉ.",
+        "NE PAS INVENTER d'informations sur les sujets ci-dessous. Utilise UNIQUEMENT ce qui est décrit ici :",
+    ]
 
     for r in results:
-        lines.append(f"\n• {r['query']} :")
+        lines.append(f"\n▸ {r['query']} :")
         lines.append(f"  {r['answer']}")
         if r.get('sources'):
             source_names = [s['title'] for s in r['sources'] if s['title']]
             if source_names:
                 lines.append(f"  Sources : {', '.join(source_names[:2])}")
+
+    lines.append("\nSi tu ne trouves pas l'information dans ce contexte, dis-le plutôt que d'inventer.")
 
     context = '\n'.join(lines)
 
