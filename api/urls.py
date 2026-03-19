@@ -16,6 +16,7 @@ from . import convert
 from . import billing
 from . import cartoon
 from . import pdf_views
+from . import websearch
 
 urlpatterns = [
     # Auth
@@ -91,6 +92,10 @@ urlpatterns = [
     # Repurpose (URL extraction)
     path('repurpose/extract/', repurpose.extract_url_content, name='extract_url_content'),
     path('repurpose/extract-ideas/', repurpose.extract_multi_posts, name='extract_multi_posts'),
+
+    # Web search
+    path('web/search/', websearch.web_search, name='web_search'),
+    path('web/images/', websearch.web_image_search, name='web_image_search'),
 
     # Drafts (saved variants / ideas)
     path('drafts/', views.list_drafts, name='list_drafts'),

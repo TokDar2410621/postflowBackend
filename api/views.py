@@ -15,6 +15,7 @@ from .models import GeneratedPost, PublishedPost, PromptTemplate, UserProfile, S
 from .serializers import GeneratePostSerializer, GeneratedPostSerializer
 from .billing import check_generation_limit, increment_usage
 from .llm import get_user_plan, resolve_model, validate_model_access, generate_text
+from .websearch import enrich_context
 
 MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10 MB
 ALLOWED_IMAGE_TYPES = {'image/jpeg', 'image/png', 'image/gif', 'image/webp'}
@@ -255,7 +256,10 @@ Résumé additionnel fourni par l'utilisateur :
             if suffix:
                 full_context = f"{full_context}\n\n{suffix}"
 
-        # Étape 2: Générer le post LinkedIn
+        # Étape 2: Enrichir avec recherche web si nécessaire
+        web_context = enrich_context(full_context)
+
+        # Étape 3: Générer le post LinkedIn
         system_prompt = f"""Tu es un ghostwriter LinkedIn d'élite. Tu crées des posts qui génèrent des milliers de vues et d'interactions.
 
 RÈGLE N°1 — LE HOOK (première ligne) :
@@ -285,6 +289,9 @@ CONTRAINTES :
 
         mode = get_content_mode(request)
         system_prompt += f"\n{POST_MODE_INSTRUCTIONS[mode]}"
+
+        if web_context:
+            system_prompt += f"\n\n{web_context}"
 
         user_context = get_user_context(request)
         if user_context:
@@ -401,6 +408,9 @@ def generate_variants(request):
             if suffix:
                 full_context = f"{full_context}\n\n{suffix}"
 
+        # Enrichir avec recherche web si nécessaire
+        web_context = enrich_context(full_context)
+
         # Générer plusieurs variantes
         system_prompt = f"""Tu es un ghostwriter LinkedIn d'élite. Génère {num_variants} variantes RADICALEMENT DIFFÉRENTES d'un post LinkedIn.
 
@@ -425,6 +435,9 @@ CHAQUE VARIANTE doit avoir :
 IMPORTANT : Sépare les variantes par "---VARIANTE---" (exactement ce séparateur).
 Ne numérote pas, commence directement par le contenu.
 Retourne UNIQUEMENT les posts, sans introduction ni commentaire."""
+
+        if web_context:
+            system_prompt += f"\n\n{web_context}"
 
         user_context = get_user_context(request)
         if user_context:

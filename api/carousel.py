@@ -12,6 +12,7 @@ import anthropic
 
 from .views import get_user_context, get_content_mode
 from .billing import check_generation_limit, increment_usage
+from .websearch import enrich_context
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +119,9 @@ def generate_carousel(request):
     user_context = get_user_context(request)
     mode = get_content_mode(request)
 
+    # Enrichir avec recherche web si nécessaire
+    web_context = enrich_context(topic)
+
     template_block = ""
     if template and template in TEMPLATE_INSTRUCTIONS:
         template_block = f"\n\n{TEMPLATE_INSTRUCTIONS[template]}\n"
@@ -175,6 +179,9 @@ SCHEMA JSON A RESPECTER (exemples de chaque type):
 }}
 
 {user_context}"""
+
+    if web_context:
+        system_prompt += f"\n\n{web_context}"
 
     user_message = f"Cree un carousel LinkedIn de {num_slides} slides sur le sujet suivant:\n\n{topic}"
 

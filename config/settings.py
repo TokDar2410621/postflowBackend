@@ -162,7 +162,8 @@ CORS_ALLOW_HEADERS = [
 CSRF_TRUSTED_ORIGINS = [
     origin.strip()
     for origin in os.getenv(
-        'CSRF_TRUSTED_ORIGINS',    
+        'CSRF_TRUSTED_ORIGINS',
+        'http://localhost:8080,http://127.0.0.1:8080,https://web-production-c2691.up.railway.app,https://smart-post-assistant.vercel.app'
     ).split(',')
     if origin.strip()
 ]
@@ -230,6 +231,9 @@ GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY', '')
 
 # OpenAI
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
+
+# Tavily (web search)
+TAVILY_API_KEY = os.getenv('TAVILY_API_KEY', '')
 
 # Hugging Face
 HF_TOKEN = os.getenv('HF_TOKEN', '')
