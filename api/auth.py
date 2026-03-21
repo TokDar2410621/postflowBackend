@@ -161,40 +161,44 @@ def profile(request):
 
     # GET
     try:
-        li = user.linkedin_account
-        linkedin_connected = True
-        linkedin_name = li.name
-    except LinkedInAccount.DoesNotExist:
-        linkedin_connected = False
-        linkedin_name = None
+        try:
+            li = user.linkedin_account
+            linkedin_connected = True
+            linkedin_name = li.name
+        except LinkedInAccount.DoesNotExist:
+            linkedin_connected = False
+            linkedin_name = None
 
-    # Subscription info
-    sub, _ = Subscription.objects.get_or_create(user=user)
-    now = timezone.now()
-    usage, _ = UsageRecord.objects.get_or_create(user=user, year=now.year, month=now.month)
-    plan_limits = settings.PLAN_LIMITS.get(sub.plan, settings.PLAN_LIMITS['free'])
+        # Subscription info
+        sub, _ = Subscription.objects.get_or_create(user=user)
+        now = timezone.now()
+        usage, _ = UsageRecord.objects.get_or_create(user=user, year=now.year, month=now.month)
+        plan_limits = settings.PLAN_LIMITS.get(sub.plan, settings.PLAN_LIMITS['free'])
 
-    return Response({
-        'id': user.id,
-        'username': user.username,
-        'email': user.email,
-        'linkedin_connected': linkedin_connected,
-        'linkedin_name': linkedin_name,
-        'content_mode': user_profile.content_mode,
-        'onboarding_completed': user_profile.onboarding_completed,
-        'knowledge_base': _serialize_profile(user_profile),
-        'subscription': {
-            'plan': sub.plan,
-            'status': sub.status,
-            'is_active': sub.is_active,
-            'cancel_at_period_end': sub.cancel_at_period_end,
-            'current_period_end': sub.current_period_end.isoformat() if sub.current_period_end else None,
-        },
-        'usage': {
-            'generation_count': usage.generation_count,
-            'generation_limit': plan_limits['generations_per_month'],
-        },
-    })
+        return Response({
+            'id': user.id,
+            'username': user.username,
+            'email': user.email,
+            'linkedin_connected': linkedin_connected,
+            'linkedin_name': linkedin_name,
+            'content_mode': user_profile.content_mode,
+            'onboarding_completed': user_profile.onboarding_completed,
+            'knowledge_base': _serialize_profile(user_profile),
+            'subscription': {
+                'plan': sub.plan,
+                'status': sub.status,
+                'is_active': sub.is_active,
+                'cancel_at_period_end': sub.cancel_at_period_end,
+                'current_period_end': sub.current_period_end.isoformat() if sub.current_period_end else None,
+            },
+            'usage': {
+                'generation_count': usage.generation_count,
+                'generation_limit': plan_limits['generations_per_month'],
+            },
+        })
+    except Exception as e:
+        logger.error(f"Profile error for user {user.id}: {e}", exc_info=True)
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 def _serialize_profile(profile):
