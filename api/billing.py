@@ -3,6 +3,7 @@ from datetime import datetime
 
 import stripe
 from django.conf import settings
+from django.db.models import F
 from django.http import HttpResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -54,15 +55,16 @@ def check_generation_limit(user):
 
 
 def increment_usage(user):
-    """Incrémente le compteur de générations du mois."""
+    """Incrémente le compteur de générations du mois (atomique)."""
     if not user.is_authenticated:
         return
     now = timezone.now()
     usage, _ = UsageRecord.objects.get_or_create(
         user=user, year=now.year, month=now.month
     )
-    usage.generation_count += 1
-    usage.save(update_fields=['generation_count', 'updated_at'])
+    UsageRecord.objects.filter(pk=usage.pk).update(
+        generation_count=F('generation_count') + 1
+    )
 
 
 def get_plan_limits(user):

@@ -69,6 +69,19 @@ class ScheduledPost(models.Model):
     images_data = models.JSONField(default=list, blank=True, verbose_name="Images en base64",
                                     help_text="Liste de {data: base64, mime_type: str}")
     published_at = models.DateTimeField(null=True, blank=True, verbose_name="Date de publication effective")
+
+    # Autopilot fields
+    is_autopilot = models.BooleanField(default=False, verbose_name="Généré par autopilot")
+    AUTOPILOT_STATUS_CHOICES = [
+        ('', ''),
+        ('draft', 'Brouillon autopilot'),
+        ('approved', 'Approuvé'),
+        ('rejected', 'Rejeté'),
+        ('auto_queued', 'Auto programmé'),
+    ]
+    autopilot_status = models.CharField(max_length=20, choices=AUTOPILOT_STATUS_CHOICES, blank=True, default='')
+    autopilot_topic = models.CharField(max_length=200, blank=True, verbose_name="Sujet autopilot")
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -192,6 +205,7 @@ class UserProfile(models.Model):
     bio = models.TextField(blank=True, verbose_name="Bio / Description")
     example_posts = models.TextField(blank=True, verbose_name="Exemples de posts")
     additional_context = models.TextField(blank=True, verbose_name="Contexte additionnel")
+    onboarding_completed = models.BooleanField(default=False, verbose_name="Onboarding terminé")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -355,3 +369,46 @@ class SavedDraft(models.Model):
 
     def __str__(self):
         return f"Draft {self.id} - {self.title[:50]}"
+
+
+class AutopilotConfig(models.Model):
+    """Configuration autopilot par utilisateur"""
+    MODE_CHOICES = [
+        ('full_auto', 'Full Auto'),
+        ('semi_auto', 'Semi Auto'),
+    ]
+    TONE_CHOICES = [
+        ('professionnel', 'Professionnel'),
+        ('inspirant', 'Inspirant'),
+        ('storytelling', 'Storytelling'),
+        ('educatif', 'Éducatif'),
+        ('humoristique', 'Humoristique'),
+    ]
+
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='autopilot_config')
+    is_enabled = models.BooleanField(default=False)
+    mode = models.CharField(max_length=20, choices=MODE_CHOICES, default='semi_auto')
+
+    # Planning: [{"day": 0, "time": "09:00"}, ...] day: 0=Lundi
+    schedule_slots = models.JSONField(default=list, blank=True)
+    timezone = models.CharField(max_length=50, default='Europe/Paris')
+
+    # Contenu
+    topics = models.JSONField(default=list, blank=True, help_text="Liste de sujets")
+    tone = models.CharField(max_length=20, choices=TONE_CHOICES, default='professionnel')
+    content_mode = models.CharField(max_length=20, choices=CONTENT_MODE_CHOICES, default='audience_growth')
+    use_web_search = models.BooleanField(default=True)
+
+    # Anti-répétition
+    last_topics_used = models.JSONField(default=list, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Configuration Autopilot"
+        verbose_name_plural = "Configurations Autopilot"
+
+    def __str__(self):
+        status = "actif" if self.is_enabled else "inactif"
+        return f"Autopilot {self.user.username} ({status})"

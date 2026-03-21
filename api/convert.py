@@ -2,7 +2,7 @@ import json
 import logging
 
 from rest_framework.decorators import api_view, parser_classes, permission_classes
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import JSONParser
 from rest_framework.response import Response
 from rest_framework import status
@@ -16,14 +16,13 @@ logger = logging.getLogger(__name__)
 
 
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 @parser_classes([JSONParser])
 def convert_to_carousel(request):
     """Convert a text post into carousel slides."""
-    if request.user.is_authenticated:
-        can_generate, error_response = check_generation_limit(request.user)
-        if not can_generate:
-            return error_response
+    can_generate, error_response = check_generation_limit(request.user)
+    if not can_generate:
+        return error_response
 
     content = request.data.get('content', '').strip()
     tone = request.data.get('tone', 'professionnel')
@@ -104,14 +103,13 @@ SCHEMA JSON (exemples de chaque type):
 
 
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 @parser_classes([JSONParser])
 def convert_to_infographic(request):
     """Convert a text post into infographic items."""
-    if request.user.is_authenticated:
-        can_generate, error_response = check_generation_limit(request.user)
-        if not can_generate:
-            return error_response
+    can_generate, error_response = check_generation_limit(request.user)
+    if not can_generate:
+        return error_response
 
     content = request.data.get('content', '').strip()
     tone = request.data.get('tone', 'professionnel')
@@ -187,14 +185,13 @@ SCHEMA JSON:
 
 
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 @parser_classes([JSONParser])
 def convert_to_post(request):
     """Convert carousel slides or infographic items into a text post."""
-    if request.user.is_authenticated:
-        can_generate, error_response = check_generation_limit(request.user)
-        if not can_generate:
-            return error_response
+    can_generate, error_response = check_generation_limit(request.user)
+    if not can_generate:
+        return error_response
 
     slides = request.data.get('slides', [])
     infographic = request.data.get('infographic', {})

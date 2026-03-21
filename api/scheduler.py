@@ -34,5 +34,14 @@ def start():
         replace_existing=True,
     )
 
+    from api.autopilot import run_autopilot
+    scheduler.add_job(
+        run_autopilot,
+        trigger=IntervalTrigger(minutes=5),
+        id='run_autopilot',
+        name='Run autopilot generation',
+        replace_existing=True,
+    )
+
     scheduler.start()
-    logger.info('Scheduler started: publish_scheduled (1min) + update_linkedin_stats (6h)')
+    logger.info('Scheduler started: publish_scheduled (1min) + update_linkedin_stats (6h) + autopilot (5min)')

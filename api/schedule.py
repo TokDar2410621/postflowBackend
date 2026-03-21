@@ -44,6 +44,9 @@ def list_scheduled_posts(request):
         'created_at': post.created_at.isoformat(),
         'has_images': bool(post.images_data),
         'images_count': len(post.images_data) if post.images_data else 0,
+        'is_autopilot': post.is_autopilot,
+        'autopilot_status': post.autopilot_status,
+        'autopilot_topic': post.autopilot_topic,
     } for post in posts]
 
     return Response(data)
@@ -219,6 +222,7 @@ def publish_scheduled_posts():
                 ScheduledPost.objects
                 .select_for_update(skip_locked=True)
                 .filter(status='pending', scheduled_at__lte=now)
+                .exclude(autopilot_status='draft')
                 .first()
             )
 

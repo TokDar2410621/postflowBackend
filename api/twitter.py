@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import os
 import secrets
 from datetime import timedelta
 from urllib.parse import urlencode
@@ -21,7 +22,10 @@ TWITTER_AUTH_URL = "https://twitter.com/i/oauth2/authorize"
 TWITTER_TOKEN_URL = "https://api.twitter.com/2/oauth2/token"
 TWITTER_USER_URL = "https://api.twitter.com/2/users/me"
 TWITTER_TWEET_URL = "https://api.twitter.com/2/tweets"
-TWITTER_REDIRECT_URI = "https://web-production-c2691.up.railway.app/api/auth/twitter/callback/"
+TWITTER_REDIRECT_URI = os.getenv(
+    'TWITTER_REDIRECT_URI',
+    'https://web-production-c2691.up.railway.app/api/auth/twitter/callback/'
+)
 
 
 def _generate_pkce():

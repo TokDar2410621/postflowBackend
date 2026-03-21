@@ -3,7 +3,7 @@ import logging
 from datetime import datetime
 
 from rest_framework.decorators import api_view, parser_classes, permission_classes
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import JSONParser
 from rest_framework.response import Response
 from rest_framework import status
@@ -87,14 +87,13 @@ INFOGRAPHIC_TEMPLATE_INSTRUCTIONS = {
 
 
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 @parser_classes([JSONParser])
 def generate_infographic(request):
     # Vérifier la limite de générations
-    if request.user.is_authenticated:
-        can_generate, error_response = check_generation_limit(request.user)
-        if not can_generate:
-            return error_response
+    can_generate, error_response = check_generation_limit(request.user)
+    if not can_generate:
+        return error_response
 
     topic = request.data.get('topic', '').strip()
     tone = request.data.get('tone', 'professionnel')
@@ -216,7 +215,7 @@ SCHEMA JSON A RESPECTER:
 
 
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 @parser_classes([JSONParser])
 def generate_infographic_caption(request):
     title = request.data.get('title', '').strip()

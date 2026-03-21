@@ -17,6 +17,7 @@ from . import billing
 from . import cartoon
 from . import pdf_views
 from . import websearch
+from . import autopilot
 
 urlpatterns = [
     # Auth
@@ -96,6 +97,15 @@ urlpatterns = [
     # Web search
     path('web/search/', websearch.web_search, name='web_search'),
     path('web/images/', websearch.web_image_search, name='web_image_search'),
+
+    # Autopilot
+    path('autopilot/config/', autopilot.get_autopilot_config, name='autopilot_config_get'),
+    path('autopilot/config/update/', autopilot.update_autopilot_config, name='autopilot_config_update'),
+    path('autopilot/queue/', autopilot.get_autopilot_queue, name='autopilot_queue'),
+    path('autopilot/queue/<int:pk>/approve/', autopilot.approve_autopilot_post, name='autopilot_approve'),
+    path('autopilot/queue/<int:pk>/reject/', autopilot.reject_autopilot_post, name='autopilot_reject'),
+    path('autopilot/generate-now/', autopilot.trigger_generation, name='autopilot_generate'),
+    path('autopilot/history/', autopilot.get_autopilot_history, name='autopilot_history'),
 
     # Drafts (saved variants / ideas)
     path('drafts/', views.list_drafts, name='list_drafts'),

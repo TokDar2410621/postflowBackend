@@ -148,10 +148,16 @@ def profile(request):
             if field in kb:
                 setattr(user_profile, field, kb[field])
         content_mode = request.data.get('content_mode')
-        if content_mode in ('audience_growth', 'job_search'):
+        if content_mode in ('audience_growth', 'job_search', 'lead_magnet'):
             user_profile.content_mode = content_mode
+        if request.data.get('onboarding_completed'):
+            user_profile.onboarding_completed = True
         user_profile.save()
-        return Response({'message': 'Profil mis à jour avec succès', 'knowledge_base': _serialize_profile(user_profile)})
+        return Response({
+            'message': 'Profil mis à jour avec succès',
+            'knowledge_base': _serialize_profile(user_profile),
+            'onboarding_completed': user_profile.onboarding_completed,
+        })
 
     # GET
     linkedin_connected = hasattr(user, 'linkedin_account') and user.linkedin_account is not None
@@ -170,6 +176,7 @@ def profile(request):
         'linkedin_connected': linkedin_connected,
         'linkedin_name': linkedin_name,
         'content_mode': user_profile.content_mode,
+        'onboarding_completed': user_profile.onboarding_completed,
         'knowledge_base': _serialize_profile(user_profile),
         'subscription': {
             'plan': sub.plan,

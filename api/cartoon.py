@@ -4,6 +4,7 @@ import logging
 import anthropic
 import requests
 from django.conf import settings
+from django.db.models import F
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import api_view, parser_classes, permission_classes
@@ -55,15 +56,16 @@ def check_cartoon_limit(user):
 
 
 def increment_cartoon_usage(user):
-    """Incrémente le compteur de cartoons du mois."""
+    """Incrémente le compteur de cartoons du mois (atomique)."""
     if not user.is_authenticated:
         return
     now = timezone.now()
     usage, _ = CartoonUsageRecord.objects.get_or_create(
         user=user, year=now.year, month=now.month
     )
-    usage.cartoon_count += 1
-    usage.save(update_fields=['cartoon_count', 'updated_at'])
+    CartoonUsageRecord.objects.filter(pk=usage.pk).update(
+        cartoon_count=F('cartoon_count') + 1
+    )
 
 
 def describe_photo_with_vision(photo_url):
@@ -257,7 +259,7 @@ def generate_avatar(request):
     except Exception as e:
         logger.error(f"Erreur génération avatar cartoon: {e}")
         return Response(
-            {'error': f'Erreur lors de la création de l\'avatar: {str(e)}'},
+            {'error': 'Erreur lors de la création de l\'avatar. Réessayez.'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
@@ -330,7 +332,7 @@ def regenerate_avatar(request):
     except Exception as e:
         logger.error(f"Erreur re-génération avatar cartoon: {e}")
         return Response(
-            {'error': f'Erreur lors de la re-génération: {str(e)}'},
+            {'error': 'Erreur lors de la re-génération. Réessayez.'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
@@ -402,6 +404,6 @@ def generate_cartoon_dialogue(request):
     except Exception as e:
         logger.error(f"Erreur génération dialogue cartoon: {e}")
         return Response(
-            {'error': f'Erreur lors de la génération du dialogue: {str(e)}'},
+            {'error': 'Erreur lors de la génération du dialogue. Réessayez.'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )

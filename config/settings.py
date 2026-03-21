@@ -254,6 +254,7 @@ PLAN_LIMITS = {
         'social_accounts': 1,
         'watermark': True,
         'cartoon_per_month': 1,
+        'autopilot_enabled': False,
     },
     'pro': {
         'generations_per_month': 50,
@@ -262,6 +263,7 @@ PLAN_LIMITS = {
         'social_accounts': 3,
         'watermark': False,
         'cartoon_per_month': None,  # unlimited
+        'autopilot_enabled': True,
     },
     'business': {
         'generations_per_month': None,  # unlimited
@@ -270,6 +272,7 @@ PLAN_LIMITS = {
         'social_accounts': None,  # unlimited
         'watermark': False,
         'cartoon_per_month': None,  # unlimited
+        'autopilot_enabled': True,
     },
 }
 
