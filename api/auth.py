@@ -17,7 +17,7 @@ from django.core.mail import send_mail
 from django.template.loader import render_to_string
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
-from .models import UserProfile, GeneratedPost, Subscription, UsageRecord
+from .models import UserProfile, GeneratedPost, Subscription, UsageRecord, LinkedInAccount
 
 logger = logging.getLogger('api')
 
@@ -160,8 +160,13 @@ def profile(request):
         })
 
     # GET
-    linkedin_connected = hasattr(user, 'linkedin_account') and user.linkedin_account is not None
-    linkedin_name = user.linkedin_account.name if linkedin_connected else None
+    try:
+        li = user.linkedin_account
+        linkedin_connected = True
+        linkedin_name = li.name
+    except LinkedInAccount.DoesNotExist:
+        linkedin_connected = False
+        linkedin_name = None
 
     # Subscription info
     sub, _ = Subscription.objects.get_or_create(user=user)
