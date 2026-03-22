@@ -657,6 +657,11 @@ def run_autopilot():
     now = timezone.now()
     configs = AutopilotConfig.objects.filter(is_enabled=True).select_related('user')
 
+    if not configs.exists():
+        return
+
+    logger.info(f"Autopilot job: checking {configs.count()} active config(s) at {now.isoformat()}")
+
     for config in configs:
         try:
             _process_config(config, now)
@@ -672,13 +677,16 @@ def _process_config(config: AutopilotConfig, now):
     try:
         li = LinkedInAccount.objects.get(user=user)
         if li.is_expired:
+            logger.info(f"Autopilot: skipping {user.username} — LinkedIn token expired")
             return
     except LinkedInAccount.DoesNotExist:
+        logger.info(f"Autopilot: skipping {user.username} — no LinkedIn account")
         return
 
     # Check generation credits
     can_generate, _ = check_generation_limit(user)
     if not can_generate:
+        logger.info(f"Autopilot: skipping {user.username} — no credits")
         return
 
     # Convert now to user's timezone
@@ -691,23 +699,29 @@ def _process_config(config: AutopilotConfig, now):
     current_day = local_now.weekday()
 
     slots = config.schedule_slots or []
-    for slot in slots:
-        slot_day = slot.get('day')
+    today_slots = [s for s in slots if s.get('day') == current_day]
+
+    if not today_slots:
+        return
+
+    logger.info(f"Autopilot: {user.username} — day {current_day}, local time {local_now.strftime('%H:%M')}, {len(today_slots)} slot(s) today")
+
+    for slot in today_slots:
         slot_time = slot.get('time', '')
 
-        if slot_day != current_day:
-            continue
-
-        # Check if within 5-minute window
+        # Check if within 10-minute window (more forgiving than strict 5min)
         try:
             slot_h, slot_m = map(int, slot_time.split(':'))
             now_h, now_m = local_now.hour, local_now.minute
             slot_total = slot_h * 60 + slot_m
             now_total = now_h * 60 + now_m
-            if not (0 <= now_total - slot_total < 5):
+            diff = now_total - slot_total
+            if not (0 <= diff <= 10):
                 continue
         except (ValueError, AttributeError):
             continue
+
+        logger.info(f"Autopilot: {user.username} — slot {slot_time} is due (diff={diff}min)")
 
         # Check if already generated for this slot today
         today_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -722,6 +736,7 @@ def _process_config(config: AutopilotConfig, now):
         ).exists()
 
         if already_exists:
+            logger.info(f"Autopilot: {user.username} — slot {slot_time} already generated today, skipping")
             continue
 
         # Compute the exact scheduled_at in UTC
