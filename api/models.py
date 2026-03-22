@@ -398,6 +398,14 @@ class AutopilotConfig(models.Model):
     tone = models.CharField(max_length=20, choices=TONE_CHOICES, default='professionnel')
     content_mode = models.CharField(max_length=20, choices=CONTENT_MODE_CHOICES, default='audience_growth')
     use_web_search = models.BooleanField(default=True)
+    content_instructions = models.TextField(
+        blank=True, default='',
+        help_text="Instructions personnalisées pour guider la génération (style, contexte, ton détaillé)"
+    )
+    content_types = models.JSONField(
+        default=list, blank=True,
+        help_text='Types de contenu à générer: ["post", "carousel", "infographic"]'
+    )
 
     # Anti-répétition
     last_topics_used = models.JSONField(default=list, blank=True)

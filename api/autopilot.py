@@ -1,11 +1,16 @@
 """
 Autopilot — Génération et publication automatique de posts LinkedIn.
+
+Supports 3 content types: post (text), carousel, infographic.
+Picks type randomly from user's enabled content_types.
 """
+import json
 import random
 import logging
 from datetime import timedelta
 
 import pytz
+import anthropic
 from django.conf import settings
 from django.core.mail import send_mail
 from django.utils import timezone
@@ -22,8 +27,12 @@ from .billing import check_generation_limit, increment_usage
 from .llm import get_user_plan, resolve_model, generate_text
 from .websearch import enrich_context
 from .views import extract_hashtags, POST_MODE_INSTRUCTIONS
+from .carousel import validate_slides, CAROUSEL_MODE_INSTRUCTIONS, TEMPLATE_INSTRUCTIONS
+from .infographic import validate_infographic
 
 logger = logging.getLogger(__name__)
+
+VALID_CONTENT_TYPES = {'post', 'carousel', 'infographic'}
 
 ANGLE_VARIATIONS = [
     "Partage une leçon personnelle apprise sur ce sujet. Raconte une expérience concrète.",
@@ -36,9 +45,12 @@ ANGLE_VARIATIONS = [
     "Partage des statistiques ou tendances récentes sur ce sujet. Analyse les implications.",
 ]
 
+# Carousel templates to pick randomly
+CAROUSEL_TEMPLATES = list(TEMPLATE_INSTRUCTIONS.keys())
+
 
 # ---------------------------------------------------------------------------
-# Core autopilot logic
+# Shared helpers
 # ---------------------------------------------------------------------------
 
 def pick_topic_and_angle(config: AutopilotConfig):
@@ -52,7 +64,6 @@ def pick_topic_and_angle(config: AutopilotConfig):
     # Find topics not recently used
     available = [t for t in topics if t not in last_used]
     if not available:
-        # All used — reset and pick first
         available = topics
 
     topic = available[0]
@@ -60,8 +71,52 @@ def pick_topic_and_angle(config: AutopilotConfig):
     return topic, angle
 
 
-def build_autopilot_prompt(config: AutopilotConfig, topic: str, angle: str, web_context: str):
-    """Build system prompt + user message for autopilot generation."""
+def pick_content_type(config: AutopilotConfig):
+    """Pick a random content type from user's enabled types."""
+    types = config.content_types or []
+    valid = [t for t in types if t in VALID_CONTENT_TYPES]
+    if not valid:
+        return 'post'  # default
+    return random.choice(valid)
+
+
+def _get_user_context(config: AutopilotConfig):
+    """Build full user context string from profile + custom instructions."""
+    parts = []
+
+    # User profile context
+    try:
+        profile = UserProfile.objects.get(user=config.user)
+        ctx = profile.build_prompt_context()
+        if ctx:
+            parts.append(ctx)
+    except UserProfile.DoesNotExist:
+        pass
+
+    # Custom autopilot instructions
+    if config.content_instructions and config.content_instructions.strip():
+        parts.append(
+            f"INSTRUCTIONS SPÉCIFIQUES DE L'AUTEUR POUR LE CONTENU :\n{config.content_instructions.strip()}"
+        )
+
+    # Recent posts for anti-repetition (last 5 posts, 200 chars each)
+    recent = GeneratedPost.objects.filter(user=config.user).order_by('-created_at')[:5]
+    if recent:
+        snippets = [p.generated_content[:200] for p in recent]
+        parts.append(
+            "POSTS RÉCEMMENT PUBLIÉS (ne pas répéter les mêmes idées, angles ou structures) :\n"
+            + "\n".join(f"- {s}..." for s in snippets)
+        )
+
+    return "\n\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Post generation (text only)
+# ---------------------------------------------------------------------------
+
+def _generate_post_content(config, topic, angle, web_context):
+    """Generate a text post."""
     tone = config.tone or 'professionnel'
 
     system_prompt = f"""Tu es un ghostwriter LinkedIn d'élite. Tu crées des posts qui génèrent des milliers de vues et d'interactions.
@@ -91,38 +146,289 @@ CONTRAINTES :
 - Retourne UNIQUEMENT le post, sans commentaire ni explication
 - Écris comme un humain, pas comme un robot corporate"""
 
-    # Content mode instructions
     mode = config.content_mode or 'audience_growth'
     if mode in POST_MODE_INSTRUCTIONS:
         system_prompt += f"\n{POST_MODE_INSTRUCTIONS[mode]}"
 
-    # Web search context
     if web_context:
         system_prompt += f"\n\n{web_context}"
 
-    # User profile context
-    try:
-        profile = UserProfile.objects.get(user=config.user)
-        user_ctx = profile.build_prompt_context()
-        if user_ctx:
-            system_prompt += f"\n\n{user_ctx}"
-    except UserProfile.DoesNotExist:
-        pass
-
-    # Recent posts for anti-repetition
-    recent = GeneratedPost.objects.filter(user=config.user).order_by('-created_at')[:3]
-    if recent:
-        snippets = [p.generated_content[:100] for p in recent]
-        system_prompt += "\n\nPOSTS RÉCEMMENT PUBLIÉS (ne pas répéter les mêmes idées) :\n" + "\n".join(
-            f"- {s}..." for s in snippets
-        )
+    user_ctx = _get_user_context(config)
+    if user_ctx:
+        system_prompt += f"\n\n{user_ctx}"
 
     user_message = f"Écris un post LinkedIn sur le sujet suivant : {topic}\n\nAngle à adopter : {angle}"
+
+    plan = get_user_plan(config.user)
+    model_id = resolve_model(None, plan)
+
+    content = generate_text(
+        model_id=model_id,
+        system_prompt=system_prompt,
+        user_message=user_message,
+        max_tokens=1024,
+    )
+
+    return {'type': 'post', 'content': content}
+
+
+# ---------------------------------------------------------------------------
+# Carousel generation
+# ---------------------------------------------------------------------------
+
+def _generate_carousel_content(config, topic, angle, web_context):
+    """Generate a carousel (slides JSON + caption text)."""
+    tone = config.tone or 'professionnel'
+    num_slides = random.randint(6, 8)
+    template = random.choice(CAROUSEL_TEMPLATES)
+
+    mode = config.content_mode or 'audience_growth'
+    mode_block = CAROUSEL_MODE_INSTRUCTIONS.get(mode, CAROUSEL_MODE_INSTRUCTIONS["audience_growth"])
+    template_block = TEMPLATE_INSTRUCTIONS.get(template, "")
+
+    user_ctx = _get_user_context(config)
+
+    system_prompt = f"""Tu es un expert en creation de carousels LinkedIn viraux.
+Tu generes le contenu structure d'un carousel au format JSON strict.
+
+REGLES DE DESIGN LINKEDIN (TRES IMPORTANT):
+- Les carousels viraux ont 10-20 mots MAX par slide
+- Les titres sont COURTS et PERCUTANTS (5-8 mots max)
+- Les bullets sont ultra-concis (max 12 mots chacun)
+- La slide 1 (titre) doit STOPPER LE SCROLL avec un hook puissant
+- La derniere slide (CTA) doit donner une instruction CLAIRE et SPECIFIQUE
+
+REGLES TECHNIQUES:
+- Retourne UNIQUEMENT du JSON valide, sans markdown, sans backticks, sans commentaire
+- La premiere slide est TOUJOURS de type "title" avec un hook percutant
+- La derniere slide est TOUJOURS de type "cta" (call to action)
+- Les slides intermediaires peuvent etre: "content", "quote", "dialogue", "stats", "comparison", "list", "image_text", "highlight"
+- Chaque slide "content" a soit des "bullets" (2-4 points concis), soit un "body" (paragraphe court)
+- Maximum 1 slide "quote" par carousel
+- Le contenu doit etre en francais
+- Cree un fil narratif logique entre les slides
+- VARIE les types de slides pour un carousel visuellement dynamique (ne mets pas que des "content")
+- Adapte le ton: {tone}
+
+QUAND UTILISER CHAQUE TYPE DE SLIDE:
+- "content" : point cle avec bullets ou paragraphe (polyvalent)
+- "stats" : mettre en avant UN chiffre cle percutant (ex: "78%", "+200K", "3x")
+- "comparison" : opposer 2 idees, avant/apres, mythe/realite en 2 colonnes
+- "list" : liste d'elements avec emojis (conseils, outils, etapes)
+- "highlight" : une phrase impact forte, isolee, qui marque les esprits
+- "quote" : citation d'un auteur ou expert
+- "dialogue" : echange Q&A en bulles de chat
+- "image_text" : texte + espace image (utiliser pour slides visuelles)
+
+{template_block}
+{mode_block}
+
+SCHEMA JSON A RESPECTER (exemples de chaque type):
+{{
+  "slides": [
+    {{ "type": "title", "title": "Titre accrocheur", "subtitle": "Sous-titre explicatif" }},
+    {{ "type": "content", "title": "Point cle", "bullets": ["Point 1", "Point 2", "Point 3"] }},
+    {{ "type": "stats", "stat_number": "78%", "stat_label": "des managers", "stat_description": "ne savent pas deleguer" }},
+    {{ "type": "comparison", "left_title": "Avant", "left_items": ["Pas de process"], "right_title": "Apres", "right_items": ["Process clairs"] }},
+    {{ "type": "list", "title": "Les outils", "list_items": [{{ "emoji": "🎯", "text": "Notion pour organiser" }}] }},
+    {{ "type": "highlight", "highlight_text": "Le succes n'est pas un accident." }},
+    {{ "type": "quote", "quote": "Citation inspirante", "author": "Auteur" }},
+    {{ "type": "cta", "title": "Titre final", "cta_text": "Action a faire", "cta_subtitle": "Suivez-moi" }}
+  ]
+}}
+
+{user_ctx}"""
+
     if web_context:
-        user_message += f"\n\n---\n{web_context}"
+        system_prompt += f"\n\n{web_context}"
 
-    return system_prompt, user_message
+    user_message = f"Cree un carousel LinkedIn de {num_slides} slides sur : {topic}\nAngle : {angle}"
 
+    try:
+        client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+        response = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=2000,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_message}],
+        )
+        raw = response.content[0].text.strip()
+
+        if raw.startswith('```'):
+            raw = raw.split('\n', 1)[1] if '\n' in raw else raw[3:]
+            if raw.endswith('```'):
+                raw = raw[:-3].strip()
+
+        data = json.loads(raw)
+        slides = data.get('slides', data if isinstance(data, list) else [])
+
+        if not validate_slides(slides):
+            logger.warning("Autopilot carousel: invalid slides structure, falling back to post")
+            return _generate_post_content(config, topic, angle, web_context)
+
+        # Generate a caption to accompany the carousel
+        caption = _generate_carousel_caption(config, topic, slides)
+
+        return {
+            'type': 'carousel',
+            'content': caption,
+            'slides': slides,
+            'metadata': {'topic': topic, 'tone': tone, 'template': template},
+        }
+
+    except Exception as e:
+        logger.error(f"Autopilot carousel generation failed: {e}", exc_info=True)
+        # Fallback to text post
+        return _generate_post_content(config, topic, angle, web_context)
+
+
+def _generate_carousel_caption(config, topic, slides):
+    """Generate a short LinkedIn caption to accompany the carousel PDF."""
+    tone = config.tone or 'professionnel'
+    titles = [s.get('title', s.get('highlight_text', '')) for s in slides[:3]]
+    preview = " | ".join(t for t in titles if t)
+
+    system_prompt = f"""Tu es un expert LinkedIn. Écris une légende courte et accrocheuse pour accompagner un carousel LinkedIn.
+
+RÈGLES :
+- Maximum 100 mots
+- Hook en première ligne (stopper le scroll)
+- Mentionne que c'est un carousel (ex: "Swipe →", "Slides à sauvegarder")
+- Termine par un CTA (commentaire, partage, follow)
+- Ajoute 3-5 hashtags à la fin
+- Ton : {tone}
+- Retourne UNIQUEMENT la légende, sans explication"""
+
+    user_message = f"Sujet du carousel : {topic}\nAperçu des slides : {preview}"
+
+    plan = get_user_plan(config.user)
+    model_id = resolve_model(None, plan)
+
+    return generate_text(
+        model_id=model_id,
+        system_prompt=system_prompt,
+        user_message=user_message,
+        max_tokens=512,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Infographic generation
+# ---------------------------------------------------------------------------
+
+def _generate_infographic_content(config, topic, angle, web_context):
+    """Generate an infographic (items JSON + caption text)."""
+    tone = config.tone or 'professionnel'
+    num_items = random.randint(6, 9)
+
+    user_ctx = _get_user_context(config)
+
+    system_prompt = f"""Tu es un expert en creation de contenu visuel LinkedIn.
+Tu generes le contenu structure d'une infographie au format JSON strict.
+
+REGLES DE CONTENU:
+- Le titre principal doit etre ACCROCHEUR et court (8-12 mots max)
+- Le sous-titre explique la valeur en 1 phrase courte
+- Chaque item a un titre COURT (3-6 mots) et une description CONCISE (15-25 mots)
+- Le contenu doit etre en francais
+- Le footer_cta est une invitation a suivre/partager
+- Adapte le ton: {tone}
+
+REGLES TECHNIQUES:
+- Retourne UNIQUEMENT du JSON valide, sans markdown, sans backticks, sans commentaire
+- Genere exactement {num_items} items
+- Chaque item a obligatoirement: number (int), title (str), description (str)
+- Champs optionnels par item: emoji (str, 1 emoji), stat_value (str, chiffre cle), category (str, "left" ou "right")
+
+SCHEMA JSON A RESPECTER:
+{{
+  "infographic": {{
+    "title": "Titre accrocheur de l'infographie",
+    "subtitle": "Sous-titre explicatif court",
+    "template": "grid-numbered",
+    "items": [
+      {{ "number": 1, "title": "Concept cle", "description": "Description courte et actionnable.", "emoji": "🎯" }},
+      {{ "number": 2, "title": "Autre concept", "description": "Explication concise.", "stat_value": "78%" }}
+    ],
+    "footer_cta": "Suivez-moi pour plus de conseils"
+  }}
+}}
+
+{user_ctx}"""
+
+    if web_context:
+        system_prompt += f"\n\n{web_context}"
+
+    user_message = f"Cree une infographie LinkedIn de {num_items} elements sur : {topic}\nAngle : {angle}"
+
+    try:
+        client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+        response = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=2000,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_message}],
+        )
+        raw = response.content[0].text.strip()
+
+        if raw.startswith('```'):
+            raw = raw.split('\n', 1)[1] if '\n' in raw else raw[3:]
+            if raw.endswith('```'):
+                raw = raw[:-3].strip()
+
+        data = json.loads(raw)
+        infographic = data.get('infographic', data if isinstance(data, dict) and 'items' in data else {})
+
+        if not validate_infographic(infographic):
+            logger.warning("Autopilot infographic: invalid structure, falling back to post")
+            return _generate_post_content(config, topic, angle, web_context)
+
+        caption = _generate_infographic_caption(config, topic, infographic)
+
+        return {
+            'type': 'infographic',
+            'content': caption,
+            'infographic': infographic,
+            'metadata': {'topic': topic, 'tone': tone},
+        }
+
+    except Exception as e:
+        logger.error(f"Autopilot infographic generation failed: {e}", exc_info=True)
+        return _generate_post_content(config, topic, angle, web_context)
+
+
+def _generate_infographic_caption(config, topic, infographic):
+    """Generate a short LinkedIn caption to accompany the infographic."""
+    tone = config.tone or 'professionnel'
+    title = infographic.get('title', topic)
+
+    system_prompt = f"""Tu es un expert LinkedIn. Écris une légende courte et accrocheuse pour accompagner une infographie LinkedIn.
+
+RÈGLES :
+- Maximum 100 mots
+- Hook en première ligne
+- Mentionne que c'est une infographie (ex: "Infographie à sauvegarder 📌")
+- Termine par un CTA
+- Ajoute 3-5 hashtags à la fin
+- Ton : {tone}
+- Retourne UNIQUEMENT la légende"""
+
+    user_message = f"Sujet : {topic}\nTitre de l'infographie : {title}"
+
+    plan = get_user_plan(config.user)
+    model_id = resolve_model(None, plan)
+
+    return generate_text(
+        model_id=model_id,
+        system_prompt=system_prompt,
+        user_message=user_message,
+        max_tokens=512,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Main generation dispatcher
+# ---------------------------------------------------------------------------
 
 def generate_autopilot_post(config: AutopilotConfig, scheduled_at=None):
     """Generate a single autopilot post for the given config."""
@@ -130,6 +436,10 @@ def generate_autopilot_post(config: AutopilotConfig, scheduled_at=None):
     if not topic:
         logger.warning(f"Autopilot: no topics for user {config.user.username}")
         return None
+
+    # Pick content type
+    content_type = pick_content_type(config)
+    logger.info(f"Autopilot: generating {content_type} for {config.user.username} on '{topic}'")
 
     # Web search enrichment
     web_context = ""
@@ -139,28 +449,24 @@ def generate_autopilot_post(config: AutopilotConfig, scheduled_at=None):
         except Exception as e:
             logger.warning(f"Autopilot web search failed: {e}")
 
-    system_prompt, user_message = build_autopilot_prompt(config, topic, angle, web_context)
+    # Generate content based on type
+    if content_type == 'carousel':
+        result = _generate_carousel_content(config, topic, angle, web_context)
+    elif content_type == 'infographic':
+        result = _generate_infographic_content(config, topic, angle, web_context)
+    else:
+        result = _generate_post_content(config, topic, angle, web_context)
 
-    # Resolve model based on user's plan
-    plan = get_user_plan(config.user)
-    model_id = resolve_model(None, plan)
-
-    # Generate
-    generated_content = generate_text(
-        model_id=model_id,
-        system_prompt=system_prompt,
-        user_message=user_message,
-        max_tokens=1024,
-    )
-
-    body, hashtags = extract_hashtags(generated_content)
+    actual_type = result['type']
+    content = result['content']
 
     # Save GeneratedPost for history
+    type_label = {'post': 'Post', 'carousel': 'Carousel', 'infographic': 'Infographie'}.get(actual_type, 'Post')
     GeneratedPost.objects.create(
         user=config.user,
-        summary=f"[Autopilot] {topic}",
+        summary=f"[Autopilot {type_label}] {topic}",
         tone=config.tone,
-        generated_content=generated_content,
+        generated_content=content,
     )
 
     # Increment usage
@@ -171,46 +477,59 @@ def generate_autopilot_post(config: AutopilotConfig, scheduled_at=None):
         scheduled_at = timezone.now() + timedelta(minutes=2)
 
     # Determine autopilot_status based on mode
-    if config.mode == 'full_auto':
-        autopilot_status = 'auto_queued'
+    autopilot_status = 'auto_queued' if config.mode == 'full_auto' else 'draft'
+
+    # Build extra data to store in the scheduled post
+    extra_data = {}
+    if actual_type == 'carousel':
+        extra_data['autopilot_content_type'] = 'carousel'
+        extra_data['slides'] = result.get('slides', [])
+        extra_data['carousel_metadata'] = result.get('metadata', {})
+    elif actual_type == 'infographic':
+        extra_data['autopilot_content_type'] = 'infographic'
+        extra_data['infographic'] = result.get('infographic', {})
+        extra_data['infographic_metadata'] = result.get('metadata', {})
     else:
-        autopilot_status = 'draft'
+        extra_data['autopilot_content_type'] = 'post'
 
     # Create ScheduledPost
     post = ScheduledPost.objects.create(
         user=config.user,
-        content=generated_content,
+        content=content,
         scheduled_at=scheduled_at,
         status='pending',
         is_autopilot=True,
         autopilot_status=autopilot_status,
-        autopilot_topic=topic,
+        autopilot_topic=f"[{type_label}] {topic}",
+        # Store carousel/infographic data in images_data field (JSONField, repurposed)
+        images_data=extra_data if extra_data.get('autopilot_content_type') != 'post' else [],
     )
 
     # Update last_topics_used
     last = config.last_topics_used or []
     last.append(topic)
-    config.last_topics_used = last[-10:]  # Keep last 10
+    config.last_topics_used = last[-10:]
     config.save(update_fields=['last_topics_used'])
 
     # Send email notification for semi-auto
     if config.mode == 'semi_auto':
-        _send_approval_email(config.user, post, topic)
+        _send_approval_email(config.user, post, topic, actual_type)
 
     return post
 
 
-def _send_approval_email(user, post, topic):
+def _send_approval_email(user, post, topic, content_type='post'):
     """Send email notification for semi-auto approval."""
     try:
         if not user.email:
             return
+        type_label = {'carousel': 'carousel', 'infographic': 'infographie'}.get(content_type, 'post')
         snippet = post.content[:200]
         send_mail(
-            subject="PostFlow : Un nouveau post attend votre approbation",
+            subject=f"PostFlow : Un nouveau {type_label} attend votre approbation",
             message=f"""Bonjour {user.first_name or user.username},
 
-L'autopilot PostFlow a généré un nouveau post sur le sujet : "{topic}"
+L'autopilot PostFlow a généré un nouveau {type_label} sur le sujet : "{topic}"
 
 Aperçu :
 {snippet}...
@@ -251,9 +570,9 @@ def _process_config(config: AutopilotConfig, now):
     try:
         li = LinkedInAccount.objects.get(user=user)
         if li.is_expired:
-            return  # Skip — expired token
+            return
     except LinkedInAccount.DoesNotExist:
-        return  # Skip — no LinkedIn
+        return
 
     # Check generation credits
     can_generate, _ = check_generation_limit(user)
@@ -267,8 +586,7 @@ def _process_config(config: AutopilotConfig, now):
         user_tz = pytz.timezone('Europe/Paris')
 
     local_now = now.astimezone(user_tz)
-    current_day = local_now.weekday()  # 0=Monday
-    current_time_str = local_now.strftime('%H:%M')
+    current_day = local_now.weekday()
 
     slots = config.schedule_slots or []
     for slot in slots:
@@ -307,7 +625,6 @@ def _process_config(config: AutopilotConfig, now):
         # Compute the exact scheduled_at in UTC
         scheduled_local = local_now.replace(hour=slot_h, minute=slot_m, second=0, microsecond=0)
         if scheduled_local < now:
-            # Slot already passed, schedule for 2 min from now
             scheduled_at = now + timedelta(minutes=2)
         else:
             scheduled_at = scheduled_local.astimezone(pytz.utc)
@@ -320,12 +637,9 @@ def _process_config(config: AutopilotConfig, now):
 # API endpoints
 # ---------------------------------------------------------------------------
 
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def get_autopilot_config(request):
-    """Get the user's autopilot config (creates default if none)."""
-    config, _ = AutopilotConfig.objects.get_or_create(user=request.user)
-    return Response({
+def _serialize_config(config):
+    """Serialize autopilot config to dict."""
+    return {
         'is_enabled': config.is_enabled,
         'mode': config.mode,
         'schedule_slots': config.schedule_slots,
@@ -334,7 +648,17 @@ def get_autopilot_config(request):
         'tone': config.tone,
         'content_mode': config.content_mode,
         'use_web_search': config.use_web_search,
-    })
+        'content_instructions': config.content_instructions,
+        'content_types': config.content_types,
+    }
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_autopilot_config(request):
+    """Get the user's autopilot config (creates default if none)."""
+    config, _ = AutopilotConfig.objects.get_or_create(user=request.user)
+    return Response(_serialize_config(config))
 
 
 @api_view(['PUT'])
@@ -348,7 +672,7 @@ def update_autopilot_config(request):
     slots = data.get('schedule_slots', config.schedule_slots)
     if isinstance(slots, list):
         validated = []
-        for s in slots[:7]:
+        for s in slots[:14]:  # up to 14 slots (2 per day)
             day = s.get('day')
             time_str = s.get('time', '')
             if isinstance(day, int) and 0 <= day <= 6 and ':' in str(time_str):
@@ -388,11 +712,21 @@ def update_autopilot_config(request):
         except pytz.UnknownTimeZoneError:
             pass
 
+    # Content instructions (free text)
+    if 'content_instructions' in data:
+        val = data['content_instructions']
+        config.content_instructions = str(val)[:2000] if val else ''
+
+    # Content types
+    if 'content_types' in data:
+        types = data['content_types']
+        if isinstance(types, list):
+            config.content_types = [t for t in types if t in VALID_CONTENT_TYPES]
+
     # Enable/disable — validate requirements when enabling
     if 'is_enabled' in data:
         enabling = bool(data['is_enabled'])
         if enabling:
-            # Validate requirements
             errors = []
             if not config.topics:
                 errors.append("Ajoutez au moins un sujet")
@@ -403,7 +737,6 @@ def update_autopilot_config(request):
             except LinkedInAccount.DoesNotExist:
                 errors.append("Connectez votre compte LinkedIn")
 
-            # Check plan
             plan = get_user_plan(request.user)
             plan_limits = settings.PLAN_LIMITS.get(plan, settings.PLAN_LIMITS['free'])
             if not plan_limits.get('autopilot_enabled', False):
@@ -415,21 +748,15 @@ def update_autopilot_config(request):
         config.is_enabled = enabling
 
     config.save()
-
-    return Response({
-        'is_enabled': config.is_enabled,
-        'mode': config.mode,
-        'schedule_slots': config.schedule_slots,
-        'timezone': config.timezone,
-        'topics': config.topics,
-        'tone': config.tone,
-        'content_mode': config.content_mode,
-        'use_web_search': config.use_web_search,
-    })
+    return Response(_serialize_config(config))
 
 
 def _serialize_autopilot_post(post):
-    return {
+    # Detect content type from images_data (repurposed for autopilot metadata)
+    autopilot_data = post.images_data if isinstance(post.images_data, dict) else {}
+    content_type = autopilot_data.get('autopilot_content_type', 'post')
+
+    result = {
         'id': post.id,
         'content': post.content,
         'scheduled_at': post.scheduled_at.isoformat(),
@@ -439,7 +766,17 @@ def _serialize_autopilot_post(post):
         'created_at': post.created_at.isoformat(),
         'published_at': post.published_at.isoformat() if post.published_at else None,
         'error_message': post.error_message,
+        'content_type': content_type,
     }
+
+    if content_type == 'carousel':
+        result['slides'] = autopilot_data.get('slides', [])
+        result['carousel_metadata'] = autopilot_data.get('carousel_metadata', {})
+    elif content_type == 'infographic':
+        result['infographic'] = autopilot_data.get('infographic', {})
+        result['infographic_metadata'] = autopilot_data.get('infographic_metadata', {})
+
+    return result
 
 
 @api_view(['GET'])
@@ -468,14 +805,12 @@ def approve_autopilot_post(request, pk):
     if post.autopilot_status != 'draft':
         return Response({'error': 'Ce post n\'est pas en attente d\'approbation'}, status=status.HTTP_400_BAD_REQUEST)
 
-    # Allow content edit
     new_content = request.data.get('content')
     if new_content and isinstance(new_content, str) and new_content.strip():
         post.content = new_content.strip()
 
     post.autopilot_status = 'approved'
 
-    # If scheduled_at is in the past, reschedule to 2 min from now
     if post.scheduled_at <= timezone.now():
         post.scheduled_at = timezone.now() + timedelta(minutes=2)
 
