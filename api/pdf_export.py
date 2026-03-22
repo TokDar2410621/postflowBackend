@@ -81,6 +81,45 @@ def generate_pdf(slides_data: list, frontend_url: str) -> bytes:
         context.close()
 
 
+def render_to_images(slides_data: list, frontend_url: str, viewport_height: int = 1080) -> list:
+    """
+    Render slides via the frontend /render page and return PNG screenshots as base64.
+
+    Returns: list of {'data': base64_str, 'mime_type': 'image/png'}
+    """
+    browser = _get_browser()
+    context = browser.new_context(
+        viewport={"width": 1080, "height": viewport_height},
+        device_scale_factor=2,
+    )
+    page = context.new_page()
+
+    try:
+        render_url = frontend_url.rstrip("/") + "/render"
+        page.goto(render_url, wait_until="networkidle", timeout=30000)
+
+        images = []
+        for i, slide_data in enumerate(slides_data):
+            gen = i + 1
+            page.evaluate("data => window.__renderSlide(data)", slide_data)
+            page.wait_for_selector(f'[data-generation="{gen}"]', timeout=10000)
+            page.wait_for_timeout(200)
+
+            element = page.locator("#slide-container")
+            png_bytes = element.screenshot(type="png")
+
+            import base64
+            images.append({
+                'data': base64.b64encode(png_bytes).decode('utf-8'),
+                'mime_type': 'image/png',
+            })
+
+        return images
+
+    finally:
+        context.close()
+
+
 def _assemble_pdf(screenshots: list) -> bytes:
     """Combine PNG screenshots into a multi-page PDF using Pillow."""
     images = []

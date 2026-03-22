@@ -29,10 +29,22 @@ from .websearch import enrich_context
 from .views import extract_hashtags, POST_MODE_INSTRUCTIONS
 from .carousel import validate_slides, CAROUSEL_MODE_INSTRUCTIONS, TEMPLATE_INSTRUCTIONS
 from .infographic import validate_infographic
+from .images import generate_image_for_post
+from .pdf_export import render_to_images
 
 logger = logging.getLogger(__name__)
 
 VALID_CONTENT_TYPES = {'post', 'carousel', 'infographic'}
+
+# Themes for carousel/infographic rendering (subset of frontend themes)
+RENDER_THEMES = [
+    {"name": "Navy Gold", "bgColor": "#0f1e35", "textColor": "#ffffff", "accentColor": "#eab308", "accentLight": "#fef08a", "mutedColor": "#94a3b8", "decorStyle": "geometric"},
+    {"name": "Charcoal", "bgColor": "#1c1c1e", "textColor": "#ffffff", "accentColor": "#ff6b6b", "accentLight": "#fca5a5", "mutedColor": "#9ca3af", "decorStyle": "lines"},
+    {"name": "Forest", "bgColor": "#0d2b1e", "textColor": "#ffffff", "accentColor": "#34d399", "accentLight": "#a7f3d0", "mutedColor": "#6ee7b7", "decorStyle": "dots"},
+    {"name": "Blanc Pro", "bgColor": "#ffffff", "textColor": "#0f172a", "accentColor": "#1e3a5f", "accentLight": "#93c5fd", "mutedColor": "#64748b", "decorStyle": "minimal"},
+    {"name": "Slate Blue", "bgColor": "#0f172a", "textColor": "#f1f5f9", "accentColor": "#3b82f6", "accentLight": "#93c5fd", "mutedColor": "#64748b", "decorStyle": "geometric"},
+    {"name": "Purple", "bgColor": "#1a0a2e", "textColor": "#f5f3ff", "accentColor": "#a855f7", "accentLight": "#c084fc", "mutedColor": "#a78bfa", "decorStyle": "dots"},
+]
 
 ANGLE_VARIATIONS = [
     "Partage une leçon personnelle apprise sur ce sujet. Raconte une expérience concrète.",
@@ -269,17 +281,79 @@ SCHEMA JSON A RESPECTER (exemples de chaque type):
         # Generate a caption to accompany the carousel
         caption = _generate_carousel_caption(config, topic, slides)
 
+        # Render slides to images via Playwright
+        theme = random.choice(RENDER_THEMES)
+        rendered_images = _render_carousel_images(slides, theme, user=config.user)
+
+        if not rendered_images:
+            logger.warning("Autopilot carousel: rendering failed, falling back to post + AI image")
+            return _generate_post_content(config, topic, angle, web_context)
+
         return {
             'type': 'carousel',
             'content': caption,
-            'slides': slides,
-            'metadata': {'topic': topic, 'tone': tone, 'template': template},
+            'images': rendered_images,
         }
 
     except Exception as e:
         logger.error(f"Autopilot carousel generation failed: {e}", exc_info=True)
-        # Fallback to text post
         return _generate_post_content(config, topic, angle, web_context)
+
+
+def _render_carousel_images(slides, theme, user=None):
+    """Render carousel slides to PNG images via Playwright + frontend /render page."""
+    try:
+        frontend_url = settings.FRONTEND_URL
+
+        # Get LinkedIn profile info for slide watermark
+        linkedin_profile = None
+        if user:
+            try:
+                li = LinkedInAccount.objects.get(user=user)
+                linkedin_profile = {'name': li.name or '', 'headline': li.headline or '', 'profile_picture_url': li.profile_picture_url or ''}
+            except LinkedInAccount.DoesNotExist:
+                pass
+
+        slides_data = []
+        for i, slide in enumerate(slides):
+            slides_data.append({
+                'format': 'carousel',
+                'slide': slide,
+                'theme': theme,
+                'index': i,
+                'total': len(slides),
+                'linkedInProfile': linkedin_profile,
+                'textScale': 1,
+            })
+
+        images = render_to_images(slides_data, frontend_url, viewport_height=1080)
+        logger.info(f"Autopilot: rendered {len(images)} carousel slides")
+        return images
+
+    except Exception as e:
+        logger.error(f"Autopilot carousel rendering failed: {e}", exc_info=True)
+        return []
+
+
+def _render_infographic_image(infographic, theme):
+    """Render infographic to a single PNG image via Playwright + frontend /render page."""
+    try:
+        frontend_url = settings.FRONTEND_URL
+
+        slides_data = [{
+            'format': 'infographic',
+            'infographic': infographic,
+            'theme': theme,
+            'textScale': 1,
+        }]
+
+        images = render_to_images(slides_data, frontend_url, viewport_height=1350)
+        logger.info(f"Autopilot: rendered infographic image")
+        return images
+
+    except Exception as e:
+        logger.error(f"Autopilot infographic rendering failed: {e}", exc_info=True)
+        return []
 
 
 def _generate_carousel_caption(config, topic, slides):
@@ -385,11 +459,18 @@ SCHEMA JSON A RESPECTER:
 
         caption = _generate_infographic_caption(config, topic, infographic)
 
+        # Render infographic to image via Playwright
+        theme = random.choice(RENDER_THEMES)
+        rendered_images = _render_infographic_image(infographic, theme)
+
+        if not rendered_images:
+            logger.warning("Autopilot infographic: rendering failed, falling back to post + AI image")
+            return _generate_post_content(config, topic, angle, web_context)
+
         return {
             'type': 'infographic',
             'content': caption,
-            'infographic': infographic,
-            'metadata': {'topic': topic, 'tone': tone},
+            'images': rendered_images,
         }
 
     except Exception as e:
@@ -472,25 +553,28 @@ def generate_autopilot_post(config: AutopilotConfig, scheduled_at=None):
     # Increment usage
     increment_usage(config.user)
 
+    # Images: use rendered images for carousel/infographic, generate AI image for text posts
+    images_data = result.get('images', [])
+    if actual_type == 'post':
+        # Text posts always get an AI-generated illustration
+        try:
+            image_result = generate_image_for_post(content, topic)
+            if image_result:
+                images_data = [image_result]
+                logger.info(f"Autopilot: AI image generated for {config.user.username}")
+            else:
+                logger.warning(f"Autopilot: no AI image generated for {config.user.username}")
+        except Exception as e:
+            logger.warning(f"Autopilot image generation failed: {e}")
+    else:
+        logger.info(f"Autopilot: using {len(images_data)} rendered images for {actual_type}")
+
     # Determine scheduled time
     if not scheduled_at:
         scheduled_at = timezone.now() + timedelta(minutes=2)
 
     # Determine autopilot_status based on mode
     autopilot_status = 'auto_queued' if config.mode == 'full_auto' else 'draft'
-
-    # Build extra data to store in the scheduled post
-    extra_data = {}
-    if actual_type == 'carousel':
-        extra_data['autopilot_content_type'] = 'carousel'
-        extra_data['slides'] = result.get('slides', [])
-        extra_data['carousel_metadata'] = result.get('metadata', {})
-    elif actual_type == 'infographic':
-        extra_data['autopilot_content_type'] = 'infographic'
-        extra_data['infographic'] = result.get('infographic', {})
-        extra_data['infographic_metadata'] = result.get('metadata', {})
-    else:
-        extra_data['autopilot_content_type'] = 'post'
 
     # Create ScheduledPost
     post = ScheduledPost.objects.create(
@@ -501,8 +585,7 @@ def generate_autopilot_post(config: AutopilotConfig, scheduled_at=None):
         is_autopilot=True,
         autopilot_status=autopilot_status,
         autopilot_topic=f"[{type_label}] {topic}",
-        # Store carousel/infographic data in images_data field (JSONField, repurposed)
-        images_data=extra_data if extra_data.get('autopilot_content_type') != 'post' else [],
+        images_data=images_data,
     )
 
     # Update last_topics_used
@@ -752,11 +835,8 @@ def update_autopilot_config(request):
 
 
 def _serialize_autopilot_post(post):
-    # Detect content type from images_data (repurposed for autopilot metadata)
-    autopilot_data = post.images_data if isinstance(post.images_data, dict) else {}
-    content_type = autopilot_data.get('autopilot_content_type', 'post')
-
-    result = {
+    images = post.images_data if isinstance(post.images_data, list) else []
+    return {
         'id': post.id,
         'content': post.content,
         'scheduled_at': post.scheduled_at.isoformat(),
@@ -766,17 +846,8 @@ def _serialize_autopilot_post(post):
         'created_at': post.created_at.isoformat(),
         'published_at': post.published_at.isoformat() if post.published_at else None,
         'error_message': post.error_message,
-        'content_type': content_type,
+        'has_image': len(images) > 0,
     }
-
-    if content_type == 'carousel':
-        result['slides'] = autopilot_data.get('slides', [])
-        result['carousel_metadata'] = autopilot_data.get('carousel_metadata', {})
-    elif content_type == 'infographic':
-        result['infographic'] = autopilot_data.get('infographic', {})
-        result['infographic_metadata'] = autopilot_data.get('infographic_metadata', {})
-
-    return result
 
 
 @api_view(['GET'])

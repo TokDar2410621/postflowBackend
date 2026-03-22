@@ -267,3 +267,242 @@ def generate_image_hf(request):
             {'error': f'Erreur génération illustration: {str(e)}'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
+
+
+# ---------------------------------------------------------------------------
+# Reusable image generation (for autopilot etc.)
+# ---------------------------------------------------------------------------
+
+import logging
+_img_logger = logging.getLogger(__name__)
+
+
+def generate_image_for_post(post_content: str, topic: str = "") -> dict | None:
+    """Find or generate an illustration for a post. Returns {'data': base64, 'mime_type': str} or None.
+
+    Priority: Tavily image search (real photos) → Pexels → Gemini AI → HuggingFace Flux.
+    """
+    # Build a search query from the topic/content
+    search_query = _build_image_search_query(post_content, topic)
+
+    # 1. Try Tavily image search (preferred — real, relevant photos)
+    if getattr(settings, 'TAVILY_API_KEY', None):
+        result = _try_tavily_image(search_query)
+        if result:
+            _img_logger.info(f"Image from Tavily for: {search_query[:50]}")
+            return result
+
+    # 2. Fallback: Pexels
+    if getattr(settings, 'PEXELS_API_KEY', None):
+        result = _try_pexels_image(search_query)
+        if result:
+            _img_logger.info(f"Image from Pexels for: {search_query[:50]}")
+            return result
+
+    # 3. Fallback: Gemini AI generation
+    prompt = _build_image_prompt(post_content, topic)
+    if settings.GOOGLE_API_KEY:
+        result = _try_gemini_image(prompt)
+        if result:
+            _img_logger.info(f"Image from Gemini AI for: {topic[:50]}")
+            return result
+
+    # 4. Last resort: HuggingFace Flux
+    if getattr(settings, 'HF_TOKEN', None):
+        result = _try_hf_image(prompt)
+        if result:
+            _img_logger.info(f"Image from HF Flux for: {topic[:50]}")
+            return result
+
+    _img_logger.warning("Image generation: all sources failed")
+    return None
+
+
+def _build_image_search_query(post_content: str, topic: str) -> str:
+    """Build a short English search query for finding relevant photos."""
+    # Use topic if available, otherwise first 100 chars of content
+    base = topic if topic else post_content[:100].replace('\n', ' ').strip()
+
+    # Use Claude to translate/adapt to a good English image search query
+    try:
+        import anthropic as _anth
+        client = _anth.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=30,
+            system=(
+                "Convert the topic into a short English image search query (3-5 words) "
+                "to find a professional, relevant photo. Return ONLY the query, nothing else."
+            ),
+            messages=[{"role": "user", "content": base}],
+        )
+        query = response.content[0].text.strip()
+        if query:
+            return query
+    except Exception as e:
+        _img_logger.warning(f"Search query generation failed: {e}")
+
+    return base[:60]
+
+
+def _try_tavily_image(query: str) -> dict | None:
+    """Search for images via Tavily and download the best one as base64."""
+    try:
+        from tavily import TavilyClient
+        client = TavilyClient(api_key=settings.TAVILY_API_KEY)
+        response = client.search(
+            query=query,
+            search_depth="basic",
+            max_results=3,
+            include_images=True,
+            include_answer=False,
+        )
+
+        images = response.get('images', [])
+        if not images:
+            return None
+
+        # Try to download the first valid image
+        for img_url in images[:3]:
+            if not isinstance(img_url, str) or not img_url.startswith('http'):
+                continue
+            try:
+                resp = requests.get(img_url, timeout=15, headers={
+                    'User-Agent': 'Mozilla/5.0 (compatible; PostFlow/1.0)'
+                })
+                if resp.status_code != 200:
+                    continue
+                content_type = resp.headers.get('content-type', '')
+                if 'image' not in content_type:
+                    continue
+                mime = 'image/jpeg'
+                if 'png' in content_type:
+                    mime = 'image/png'
+                elif 'webp' in content_type:
+                    mime = 'image/webp'
+
+                return {
+                    'data': base64.b64encode(resp.content).decode('utf-8'),
+                    'mime_type': mime,
+                }
+            except Exception:
+                continue
+
+    except Exception as e:
+        _img_logger.warning(f"Tavily image search failed: {e}")
+
+    return None
+
+
+def _try_pexels_image(query: str) -> dict | None:
+    """Search for images via Pexels and download the best one as base64."""
+    try:
+        headers = {'Authorization': settings.PEXELS_API_KEY}
+        resp = requests.get(
+            'https://api.pexels.com/v1/search',
+            params={'query': query, 'per_page': 3, 'orientation': 'square'},
+            headers=headers,
+            timeout=10,
+        )
+
+        if resp.status_code != 200:
+            return None
+
+        photos = resp.json().get('photos', [])
+        if not photos:
+            return None
+
+        # Download the first photo (large size — good quality for LinkedIn)
+        img_url = photos[0]['src']['large']
+        img_resp = requests.get(img_url, timeout=15)
+        if img_resp.status_code != 200:
+            return None
+
+        content_type = img_resp.headers.get('content-type', 'image/jpeg')
+        mime = 'image/jpeg'
+        if 'png' in content_type:
+            mime = 'image/png'
+
+        return {
+            'data': base64.b64encode(img_resp.content).decode('utf-8'),
+            'mime_type': mime,
+        }
+
+    except Exception as e:
+        _img_logger.warning(f"Pexels image search failed: {e}")
+
+    return None
+
+
+def _build_image_prompt(post_content: str, topic: str) -> str:
+    """Build a concise image prompt from post content."""
+    # Take first 150 chars of content as context
+    snippet = post_content[:150].replace('\n', ' ').strip()
+    base = topic if topic else snippet
+
+    return (
+        f"Professional LinkedIn post illustration about: {base}. "
+        "Modern, clean, minimalist style. Corporate/business aesthetic. "
+        "Subtle gradient background. No text, no letters, no words, no watermark."
+    )
+
+
+def _try_gemini_image(prompt: str) -> dict | None:
+    """Try generating image via Gemini."""
+    try:
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=settings.GOOGLE_API_KEY)
+
+        response = client.models.generate_content(
+            model="gemini-2.5-flash-image",
+            contents=[prompt],
+            config=types.GenerateContentConfig(
+                response_modalities=["TEXT", "IMAGE"],
+            )
+        )
+
+        for part in response.candidates[0].content.parts:
+            if part.inline_data and part.inline_data.mime_type.startswith('image/'):
+                return {
+                    'data': base64.b64encode(part.inline_data.data).decode('utf-8'),
+                    'mime_type': part.inline_data.mime_type,
+                }
+
+    except Exception as e:
+        _img_logger.warning(f"Gemini image failed: {e}")
+
+    return None
+
+
+def _try_hf_image(prompt: str) -> dict | None:
+    """Try generating image via HuggingFace Flux."""
+    try:
+        full_prompt = (
+            "clean professional illustration, modern flat design, "
+            "no text no letters no words no watermark: "
+            f"{prompt}"
+        )
+
+        resp = requests.post(
+            "https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell",
+            headers={"Authorization": f"Bearer {settings.HF_TOKEN}"},
+            json={"inputs": full_prompt, "parameters": {"width": 1024, "height": 1024}},
+            timeout=60,
+        )
+
+        if resp.status_code != 200:
+            _img_logger.warning(f"HF image failed: status {resp.status_code}")
+            return None
+
+        content_type = resp.headers.get('content-type', 'image/jpeg')
+        return {
+            'data': base64.b64encode(resp.content).decode('utf-8'),
+            'mime_type': content_type,
+        }
+
+    except Exception as e:
+        _img_logger.warning(f"HF image failed: {e}")
+
+    return None
