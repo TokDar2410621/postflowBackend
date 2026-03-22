@@ -655,12 +655,20 @@ https://postflow.app/autopilot
 def run_autopilot():
     """Scheduled job — runs every 5 minutes. Checks all enabled configs for due slots."""
     now = timezone.now()
-    configs = AutopilotConfig.objects.filter(is_enabled=True).select_related('user')
+    logger.info(f"Autopilot job running at {now.isoformat()}")
 
-    if not configs.exists():
+    try:
+        configs = AutopilotConfig.objects.filter(is_enabled=True).select_related('user')
+        count = configs.count()
+    except Exception as e:
+        logger.error(f"Autopilot job DB error: {e}", exc_info=True)
         return
 
-    logger.info(f"Autopilot job: checking {configs.count()} active config(s) at {now.isoformat()}")
+    if count == 0:
+        logger.info("Autopilot job: no active configs found")
+        return
+
+    logger.info(f"Autopilot job: checking {count} active config(s)")
 
     for config in configs:
         try:
