@@ -127,7 +127,7 @@ def _get_user_context(config: AutopilotConfig):
 # Post generation (text only)
 # ---------------------------------------------------------------------------
 
-def _generate_post_content(config, topic, angle, web_context):
+def _generate_post_content(config, topic, angle, web_context, kb_context=""):
     """Generate a text post."""
     tone = config.tone or 'professionnel'
 
@@ -162,6 +162,9 @@ CONTRAINTES :
     if mode in POST_MODE_INSTRUCTIONS:
         system_prompt += f"\n{POST_MODE_INSTRUCTIONS[mode]}"
 
+    if kb_context:
+        system_prompt += f"\n\n{kb_context}"
+
     if web_context:
         system_prompt += f"\n\n{web_context}"
 
@@ -188,7 +191,7 @@ CONTRAINTES :
 # Carousel generation
 # ---------------------------------------------------------------------------
 
-def _generate_carousel_content(config, topic, angle, web_context):
+def _generate_carousel_content(config, topic, angle, web_context, kb_context=""):
     """Generate a carousel (slides JSON + caption text)."""
     tone = config.tone or 'professionnel'
     num_slides = random.randint(6, 8)
@@ -250,6 +253,9 @@ SCHEMA JSON A RESPECTER (exemples de chaque type):
 }}
 
 {user_ctx}"""
+
+    if kb_context:
+        system_prompt += f"\n\n{kb_context}"
 
     if web_context:
         system_prompt += f"\n\n{web_context}"
@@ -390,7 +396,7 @@ RÈGLES :
 # Infographic generation
 # ---------------------------------------------------------------------------
 
-def _generate_infographic_content(config, topic, angle, web_context):
+def _generate_infographic_content(config, topic, angle, web_context, kb_context=""):
     """Generate an infographic (items JSON + caption text)."""
     tone = config.tone or 'professionnel'
     num_items = random.randint(6, 9)
@@ -429,6 +435,9 @@ SCHEMA JSON A RESPECTER:
 }}
 
 {user_ctx}"""
+
+    if kb_context:
+        system_prompt += f"\n\n{kb_context}"
 
     if web_context:
         system_prompt += f"\n\n{web_context}"
@@ -530,13 +539,23 @@ def generate_autopilot_post(config: AutopilotConfig, scheduled_at=None):
         except Exception as e:
             logger.warning(f"Autopilot web search failed: {e}")
 
+    # Knowledge base retrieval
+    kb_context = ""
+    try:
+        from .knowledge_base import retrieve_relevant_chunks
+        kb_context = retrieve_relevant_chunks(config.user, topic)
+        if kb_context:
+            logger.info(f"Autopilot: KB context retrieved for {config.user.username}")
+    except Exception as e:
+        logger.warning(f"Autopilot KB retrieval failed: {e}")
+
     # Generate content based on type
     if content_type == 'carousel':
-        result = _generate_carousel_content(config, topic, angle, web_context)
+        result = _generate_carousel_content(config, topic, angle, web_context, kb_context)
     elif content_type == 'infographic':
-        result = _generate_infographic_content(config, topic, angle, web_context)
+        result = _generate_infographic_content(config, topic, angle, web_context, kb_context)
     else:
-        result = _generate_post_content(config, topic, angle, web_context)
+        result = _generate_post_content(config, topic, angle, web_context, kb_context)
 
     actual_type = result['type']
     content = result['content']

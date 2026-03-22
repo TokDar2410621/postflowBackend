@@ -18,6 +18,7 @@ from . import cartoon
 from . import pdf_views
 from . import websearch
 from . import autopilot
+from . import knowledge_base
 
 urlpatterns = [
     # Auth
@@ -106,6 +107,12 @@ urlpatterns = [
     path('autopilot/queue/<int:pk>/reject/', autopilot.reject_autopilot_post, name='autopilot_reject'),
     path('autopilot/generate-now/', autopilot.trigger_generation, name='autopilot_generate'),
     path('autopilot/history/', autopilot.get_autopilot_history, name='autopilot_history'),
+
+    # Knowledge Base
+    path('knowledge-base/', knowledge_base.list_documents, name='kb_list'),
+    path('knowledge-base/upload/', knowledge_base.upload_document, name='kb_upload'),
+    path('knowledge-base/<int:pk>/delete/', knowledge_base.delete_document, name='kb_delete'),
+    path('knowledge-base/stats/', knowledge_base.kb_stats, name='kb_stats'),
 
     # Drafts (saved variants / ideas)
     path('drafts/', views.list_drafts, name='list_drafts'),

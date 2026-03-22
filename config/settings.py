@@ -255,6 +255,7 @@ PLAN_LIMITS = {
         'watermark': True,
         'cartoon_per_month': 1,
         'autopilot_enabled': False,
+        'kb_max_documents': 5,
     },
     'pro': {
         'generations_per_month': 50,
@@ -264,6 +265,7 @@ PLAN_LIMITS = {
         'watermark': False,
         'cartoon_per_month': None,  # unlimited
         'autopilot_enabled': True,
+        'kb_max_documents': 50,
     },
     'business': {
         'generations_per_month': None,  # unlimited
@@ -273,6 +275,7 @@ PLAN_LIMITS = {
         'watermark': False,
         'cartoon_per_month': None,  # unlimited
         'autopilot_enabled': True,
+        'kb_max_documents': 100,
     },
 }
 

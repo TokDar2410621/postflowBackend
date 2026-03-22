@@ -420,3 +420,57 @@ class AutopilotConfig(models.Model):
     def __str__(self):
         status = "actif" if self.is_enabled else "inactif"
         return f"Autopilot {self.user.username} ({status})"
+
+
+class KnowledgeBaseDocument(models.Model):
+    """Document uploadé dans la base de connaissances."""
+    SOURCE_CHOICES = [
+        ('pdf', 'PDF'),
+        ('txt', 'Text'),
+        ('docx', 'DOCX'),
+        ('url', 'URL'),
+        ('paste', 'Pasted text'),
+    ]
+    STATUS_CHOICES = [
+        ('processing', 'Processing'),
+        ('ready', 'Ready'),
+        ('error', 'Error'),
+    ]
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='kb_documents')
+    title = models.CharField(max_length=300)
+    source_type = models.CharField(max_length=10, choices=SOURCE_CHOICES)
+    source_url = models.URLField(max_length=500, blank=True, default='')
+    raw_text = models.TextField(blank=True, default='')
+    chunk_count = models.IntegerField(default=0)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='processing')
+    error_message = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = "Document KB"
+        verbose_name_plural = "Documents KB"
+
+    def __str__(self):
+        return f"[{self.source_type}] {self.title[:50]} ({self.status})"
+
+
+class KnowledgeBaseChunk(models.Model):
+    """Chunk de texte avec embedding vectoriel pour recherche sémantique."""
+    from pgvector.django import VectorField
+
+    document = models.ForeignKey(KnowledgeBaseDocument, on_delete=models.CASCADE, related_name='chunks')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='kb_chunks')
+    content = models.TextField()
+    chunk_index = models.IntegerField()
+    embedding = VectorField(dimensions=1536)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['chunk_index']
+        verbose_name = "Chunk KB"
+        verbose_name_plural = "Chunks KB"
+
+    def __str__(self):
+        return f"Chunk {self.chunk_index} of {self.document.title[:30]}"
