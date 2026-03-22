@@ -306,6 +306,14 @@ SCHEMA JSON A RESPECTER (exemples de chaque type):
         return _generate_post_content(config, topic, angle, web_context)
 
 
+def _run_in_thread(fn, *args, **kwargs):
+    """Run a function in a separate thread to isolate Playwright's event loop."""
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(fn, *args, **kwargs)
+        return future.result(timeout=120)
+
+
 def _render_carousel_images(slides, theme, user=None):
     """Render carousel slides to PNG images via Playwright + frontend /render page."""
     try:
@@ -332,7 +340,9 @@ def _render_carousel_images(slides, theme, user=None):
                 'textScale': 1,
             })
 
-        images = render_to_images(slides_data, frontend_url, viewport_height=1080)
+        # Run Playwright in a separate thread to avoid polluting the scheduler
+        # thread with an async event loop (Django ORM would break otherwise)
+        images = _run_in_thread(render_to_images, slides_data, frontend_url, viewport_height=1080)
         logger.info(f"Autopilot: rendered {len(images)} carousel slides")
         return images
 
@@ -353,7 +363,8 @@ def _render_infographic_image(infographic, theme):
             'textScale': 1,
         }]
 
-        images = render_to_images(slides_data, frontend_url, viewport_height=1350)
+        # Run Playwright in a separate thread
+        images = _run_in_thread(render_to_images, slides_data, frontend_url, viewport_height=1350)
         logger.info(f"Autopilot: rendered infographic image")
         return images
 
