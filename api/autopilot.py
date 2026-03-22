@@ -717,19 +717,18 @@ def _process_config(config: AutopilotConfig, now):
     for slot in today_slots:
         slot_time = slot.get('time', '')
 
-        # Check if within 10-minute window (more forgiving than strict 5min)
         try:
             slot_h, slot_m = map(int, slot_time.split(':'))
             now_h, now_m = local_now.hour, local_now.minute
             slot_total = slot_h * 60 + slot_m
             now_total = now_h * 60 + now_m
             diff = now_total - slot_total
-            if not (0 <= diff <= 10):
-                continue
         except (ValueError, AttributeError):
             continue
 
-        logger.info(f"Autopilot: {user.username} — slot {slot_time} is due (diff={diff}min)")
+        # Skip future slots (not yet due)
+        if diff < 0:
+            continue
 
         # Check if already generated for this slot today
         today_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -746,6 +745,12 @@ def _process_config(config: AutopilotConfig, now):
         if already_exists:
             logger.info(f"Autopilot: {user.username} — slot {slot_time} already generated today, skipping")
             continue
+
+        # Slot is due (or missed) and not yet generated — go!
+        if diff <= 10:
+            logger.info(f"Autopilot: {user.username} — slot {slot_time} is due (diff={diff}min)")
+        else:
+            logger.info(f"Autopilot: {user.username} — slot {slot_time} was missed (diff={diff}min), catching up")
 
         # Compute the exact scheduled_at in UTC
         scheduled_local = local_now.replace(hour=slot_h, minute=slot_m, second=0, microsecond=0)
