@@ -458,13 +458,11 @@ class KnowledgeBaseDocument(models.Model):
 
 class KnowledgeBaseChunk(models.Model):
     """Chunk de texte avec embedding vectoriel pour recherche sémantique."""
-    from pgvector.django import VectorField
-
     document = models.ForeignKey(KnowledgeBaseDocument, on_delete=models.CASCADE, related_name='chunks')
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='kb_chunks')
     content = models.TextField()
     chunk_index = models.IntegerField()
-    embedding = VectorField(dimensions=1536)
+    embedding = models.JSONField(default=list, help_text="Vector embedding (1536 floats)")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

@@ -1,12 +1,11 @@
 """
-Add Knowledge Base models with pgvector support.
+Add Knowledge Base models.
 KnowledgeBaseDocument stores uploaded documents (text extracted).
-KnowledgeBaseChunk stores text chunks with vector embeddings for semantic search.
+KnowledgeBaseChunk stores text chunks with embeddings as JSON for semantic search.
 """
 import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
-import pgvector.django
 
 
 class Migration(migrations.Migration):
@@ -17,9 +16,6 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        # Enable pgvector extension in PostgreSQL
-        pgvector.django.VectorExtension(),
-
         # KnowledgeBaseDocument
         migrations.CreateModel(
             name='KnowledgeBaseDocument',
@@ -49,7 +45,7 @@ class Migration(migrations.Migration):
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
                 ('content', models.TextField()),
                 ('chunk_index', models.IntegerField()),
-                ('embedding', pgvector.django.VectorField(dimensions=1536)),
+                ('embedding', models.JSONField(default=list, help_text='Vector embedding (1536 floats)')),
                 ('created_at', models.DateTimeField(auto_now_add=True)),
                 ('document', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='chunks', to='api.knowledgebasedocument')),
                 ('user', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='kb_chunks', to=settings.AUTH_USER_MODEL)),

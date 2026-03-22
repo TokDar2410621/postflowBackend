@@ -182,33 +182,50 @@ def process_document(document: KnowledgeBaseDocument):
 # Retrieval (used by autopilot)
 # ---------------------------------------------------------------------------
 
+def _cosine_similarity(a: list[float], b: list[float]) -> float:
+    """Compute cosine similarity between two vectors."""
+    import math
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = math.sqrt(sum(x * x for x in a))
+    norm_b = math.sqrt(sum(x * x for x in b))
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return dot / (norm_a * norm_b)
+
+
 def retrieve_relevant_chunks(user, topic: str, top_k: int = 5) -> str:
     """Embed the topic, find closest chunks via cosine similarity, return formatted context."""
-    if not KnowledgeBaseChunk.objects.filter(user=user).exists():
+    chunks_qs = KnowledgeBaseChunk.objects.filter(
+        user=user, document__status='ready'
+    ).select_related('document')
+
+    if not chunks_qs.exists():
         return ""
 
     try:
-        from pgvector.django import CosineDistance
-
         # Embed the query
         query_embedding = embed_texts([topic])[0]
 
-        # Cosine similarity search
-        chunks = (
-            KnowledgeBaseChunk.objects
-            .filter(user=user)
-            .order_by(CosineDistance('embedding', query_embedding))
-            [:top_k]
-        )
+        # Compute similarity for each chunk in Python
+        scored = []
+        for chunk in chunks_qs:
+            if not chunk.embedding:
+                continue
+            sim = _cosine_similarity(query_embedding, chunk.embedding)
+            scored.append((sim, chunk))
 
-        if not chunks:
+        # Sort by similarity (highest first) and take top_k
+        scored.sort(key=lambda x: x[0], reverse=True)
+        top_chunks = scored[:top_k]
+
+        if not top_chunks:
             return ""
 
         lines = [
             "CONNAISSANCES DE L'AUTEUR (extraits de sa base de connaissances personnelle) :",
             "Utilise ces informations pour enrichir le contenu avec l'expertise unique de l'auteur :",
         ]
-        for chunk in chunks:
+        for _sim, chunk in top_chunks:
             doc_title = chunk.document.title
             lines.append(f"\n--- [{doc_title}] ---")
             lines.append(chunk.content)
@@ -217,7 +234,7 @@ def retrieve_relevant_chunks(user, topic: str, top_k: int = 5) -> str:
         if len(context) > 3000:
             context = context[:3000] + "\n..."
 
-        logger.info(f"KB: retrieved {len(chunks)} chunks for topic '{topic[:50]}' (user: {user.username})")
+        logger.info(f"KB: retrieved {len(top_chunks)} chunks for topic '{topic[:50]}' (user: {user.username})")
         return context
 
     except Exception as e:
