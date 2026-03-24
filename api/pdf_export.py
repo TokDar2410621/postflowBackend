@@ -44,7 +44,7 @@ def generate_pdf(slides_data: list, frontend_url: str) -> bytes:
     """
     browser = _get_browser()
     context = browser.new_context(
-        viewport={"width": 1080, "height": 1080},
+        viewport={"width": 540, "height": 540},
         device_scale_factor=2,
     )
     page = context.new_page()
@@ -81,7 +81,7 @@ def generate_pdf(slides_data: list, frontend_url: str) -> bytes:
         context.close()
 
 
-def render_to_images(slides_data: list, frontend_url: str, viewport_height: int = 1080) -> list:
+def render_to_images(slides_data: list, frontend_url: str, viewport_height: int = 1080, viewport_width: int = 1080) -> list:
     """
     Render slides via the frontend /render page and return PNG screenshots as base64.
 
@@ -89,7 +89,7 @@ def render_to_images(slides_data: list, frontend_url: str, viewport_height: int 
     """
     browser = _get_browser()
     context = browser.new_context(
-        viewport={"width": 1080, "height": viewport_height},
+        viewport={"width": viewport_width, "height": viewport_height},
         device_scale_factor=2,
     )
     page = context.new_page()

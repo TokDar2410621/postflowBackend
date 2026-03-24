@@ -5,6 +5,9 @@ import dj_database_url
 
 load_dotenv()
 
+# Allow Django ORM calls after Playwright (which uses async internally)
+os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"] = "true"
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = os.getenv('SECRET_KEY')

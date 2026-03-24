@@ -340,9 +340,9 @@ def _render_carousel_images(slides, theme, user=None):
                 'textScale': 1,
             })
 
-        # Run Playwright in a separate thread to avoid polluting the scheduler
-        # thread with an async event loop (Django ORM would break otherwise)
-        images = _run_in_thread(render_to_images, slides_data, frontend_url, viewport_height=1080)
+        # Render at 540x540 viewport so CSS clamp() values produce well-proportioned
+        # text. device_scale_factor=2 in render_to_images outputs 1080x1080 pixels.
+        images = _run_in_thread(render_to_images, slides_data, frontend_url, viewport_height=540, viewport_width=540)
         logger.info(f"Autopilot: rendered {len(images)} carousel slides")
         return images
 
@@ -363,8 +363,9 @@ def _render_infographic_image(infographic, theme):
             'textScale': 1,
         }]
 
-        # Run Playwright in a separate thread
-        images = _run_in_thread(render_to_images, slides_data, frontend_url, viewport_height=1350)
+        # Render at 540px wide (675px tall for 4:5 ratio) so CSS clamp() values
+        # produce well-proportioned text. device_scale_factor=2 outputs 1080x1350 pixels.
+        images = _run_in_thread(render_to_images, slides_data, frontend_url, viewport_height=675, viewport_width=540)
         logger.info(f"Autopilot: rendered infographic image")
         return images
 

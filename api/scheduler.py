@@ -16,32 +16,33 @@ def start():
         return
     _started = True
 
-    from api.schedule import publish_scheduled_posts
-    scheduler.add_job(
-        publish_scheduled_posts,
-        trigger=IntervalTrigger(minutes=1),
-        id='publish_scheduled',
-        name='Publish scheduled posts',
-        replace_existing=True,
-    )
+    # All scheduler jobs disabled temporarily
+    # from api.schedule import publish_scheduled_posts
+    # scheduler.add_job(
+    #     publish_scheduled_posts,
+    #     trigger=IntervalTrigger(minutes=1),
+    #     id='publish_scheduled',
+    #     name='Publish scheduled posts',
+    #     replace_existing=True,
+    # )
 
-    from api.linkedin import update_all_post_stats
-    scheduler.add_job(
-        update_all_post_stats,
-        trigger=IntervalTrigger(hours=6),
-        id='update_linkedin_stats',
-        name='Update LinkedIn stats',
-        replace_existing=True,
-    )
+    # from api.linkedin import update_all_post_stats
+    # scheduler.add_job(
+    #     update_all_post_stats,
+    #     trigger=IntervalTrigger(hours=6),
+    #     id='update_linkedin_stats',
+    #     name='Update LinkedIn stats',
+    #     replace_existing=True,
+    # )
 
-    from api.autopilot import run_autopilot
-    scheduler.add_job(
-        run_autopilot,
-        trigger=IntervalTrigger(minutes=5),
-        id='run_autopilot',
-        name='Run autopilot generation',
-        replace_existing=True,
-    )
+    # from api.autopilot import run_autopilot
+    # scheduler.add_job(
+    #     run_autopilot,
+    #     trigger=IntervalTrigger(minutes=5),
+    #     id='run_autopilot',
+    #     name='Run autopilot generation',
+    #     replace_existing=True,
+    # )
 
-    scheduler.start()
-    logger.info('Scheduler started: publish_scheduled (1min) + update_linkedin_stats (6h) + autopilot (5min)')
+    # scheduler.start()
+    logger.info('Scheduler DISABLED — no jobs running')
