@@ -16,6 +16,7 @@ from .serializers import GeneratePostSerializer, GeneratedPostSerializer
 from .billing import check_generation_limit, increment_usage
 from .llm import get_user_plan, resolve_model, validate_model_access, generate_text
 from .websearch import enrich_context
+from .prompts import build_system_prompt, build_variants_system_prompt, build_single_variant_prompt, VALID_OBJECTIVES, VALID_PLATFORMS, VALID_TONES
 
 MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10 MB
 ALLOWED_IMAGE_TYPES = {'image/jpeg', 'image/png', 'image/gif', 'image/webp'}
@@ -37,62 +38,31 @@ def validate_uploaded_images(images):
 
 
 def get_user_context(request):
-    """Récupère le contexte du profil utilisateur pour injection dans le prompt"""
+    """Récupère le contexte du profil utilisateur pour injection dans le prompt."""
     if not request.user.is_authenticated:
-        return ""
+        return None
     try:
         profile = UserProfile.objects.get(user=request.user)
-        return profile.build_prompt_context()
+        ctx = profile.build_prompt_context()
+        return ctx if ctx else None
     except UserProfile.DoesNotExist:
-        return ""
+        return None
 
 
-def get_content_mode(request):
-    """Renvoie le mode de contenu : depuis la request ou le profil utilisateur."""
+def get_objective(request):
+    """Resolve the content objective from the request."""
     mode = request.data.get('mode')
-    if mode in ('audience_growth', 'job_search', 'lead_magnet'):
+    if mode in VALID_OBJECTIVES:
         return mode
-    if request.user.is_authenticated:
-        try:
-            return request.user.profile.content_mode
-        except UserProfile.DoesNotExist:
-            pass
     return 'audience_growth'
 
 
-POST_MODE_INSTRUCTIONS = {
-    "job_search": """
-OBJECTIF : RECHERCHE D'EMPLOI
-- Le hook doit démontrer une expertise concrète ou un résultat professionnel
-- Utilise un CTA orienté opportunités : "Je suis ouvert aux nouvelles opportunités", "N'hésitez pas à me contacter", "Mon DM est ouvert"
-- Mets en avant : compétences techniques, résultats mesurables, apprentissages de carrière
-- Ton personal branding : positionne l'auteur comme un expert crédible dans son domaine
-- Utilise des mots-clés recherchés par les recruteurs : impact, résultats, expertise, leadership
-- Structure : problème rencontré → solution apportée → leçon apprise""",
-    "audience_growth": """
-OBJECTIF : CRÉATION D'AUDIENCE / VIRALITÉ
-- Le hook doit être percutant et créer un pattern interrupt (curiosité, controverse douce, chiffre choc)
-- Utilise un CTA orienté engagement : "Follow pour plus de contenu comme ça", "Enregistre ce post", "Partage si tu es d'accord", "Commente ta vision"
-- Optimise pour le reach : phrases courtes, espaces blancs, rythme dynamique
-- Provoque la réaction : questions ouvertes, prises de position, formats tendance
-- Structure : hook viral → valeur immédiate → engagement CTA""",
-    "lead_magnet": """
-OBJECTIF : LEAD MAGNET — GÉNÉRER DES COMMENTAIRES ET DES ABONNÉS
-- Le hook doit promettre une ressource/valeur concrète que le lecteur veut absolument obtenir
-- Le corps du post donne un APERÇU de la valeur (3-5 points concrets) pour prouver que la ressource vaut le coup
-- Le CTA DOIT être un échange : "Commente [MOT-CLÉ] et je t'envoie [RESSOURCE] en DM"
-- Exemples de CTA à utiliser :
-  • "Commente 'GUIDE' et je te l'envoie en DM"
-  • "Like + commente 'IA' → tu reçois le template complet"
-  • "Commente '🔥' et je t'envoie le PDF gratuitement"
-  • "Enregistre + commente 'TEMPLATE' pour recevoir le fichier"
-  • "Follow + commente 'OUI' → je t'envoie tout ça"
-- Le mot-clé à commenter doit être SIMPLE, COURT et en rapport avec le sujet (1 mot ou 1 emoji)
-- TOUJOURS mentionner que c'est GRATUIT
-- Structure : hook accrocheur → aperçu de la valeur (liste de ce que contient la ressource) → teaser ("et ce n'est qu'un extrait...") → CTA d'échange
-- Ajoute "Follow pour ne pas rater les prochaines ressources" en fin de post
-- Le post doit donner assez de valeur pour que le lecteur VEUILLE la ressource complète""",
-}
+def get_platform(request):
+    """Resolve the target platform from the request."""
+    platform = request.data.get('platform')
+    if platform in VALID_PLATFORMS:
+        return platform
+    return 'linkedin'
 
 
 def extract_hashtags(content):
@@ -217,8 +187,7 @@ def generate_post(request):
             pass
 
     # Validation du tone
-    valid_tones = ['professionnel', 'inspirant', 'storytelling', 'educatif', 'humoristique']
-    if tone not in valid_tones:
+    if tone not in VALID_TONES:
         tone = 'professionnel'
 
     # Vérifier la longueur du résumé
@@ -275,43 +244,12 @@ Résumé additionnel fourni par l'utilisateur :
         # Étape 2: Enrichir avec recherche web si nécessaire
         web_context = enrich_context(full_context)
 
-        # Étape 3: Générer le post LinkedIn
-        system_prompt = f"""Tu es un ghostwriter LinkedIn d'élite. Tu crées des posts qui génèrent des milliers de vues et d'interactions.
-
-RÈGLE N°1 — LE HOOK (première ligne) :
-La première ligne est la PLUS IMPORTANTE. Elle doit stopper le scroll. Techniques à utiliser :
-- Déclaration choc ou contre-intuitive : "J'ai refusé une augmentation de 30%. Voici pourquoi."
-- Question provocante : "Et si tout ce qu'on vous a appris sur le management était faux ?"
-- Chiffre frappant : "97% des startups échouent. La mienne aussi. 3 fois."
-- Histoire personnelle : "Il y a 2 ans, j'ai été viré. Meilleure chose qui me soit arrivée."
-- Pattern interrupt : "Arrêtez de chercher votre passion. Sérieusement."
-- Confession : "Je vais vous dire un truc que personne n'ose dire dans notre industrie."
-NE COMMENCE JAMAIS par : "🚀 Ravi de...", "Je suis heureux de...", "Aujourd'hui je voudrais...", "🎉 Excited to..."
-
-STRUCTURE :
-- Hook percutant (1 ligne seule)
-- Ligne vide
-- Développement avec des phrases courtes et percutantes
-- 1 idée par ligne, aère le texte avec des sauts de ligne
-- Utilise des emojis avec parcimonie (2-4 max, jamais en début de post)
-- Termine par un appel à l'action engageant ou une question ouverte
-
-CONTRAINTES :
-- Ton : {tone}
-- Entre 150 et 300 mots
-- N'utilise PAS de hashtags dans le corps du texte, ajoute 3-5 hashtags à la fin
-- Retourne UNIQUEMENT le post, sans commentaire ni explication
-- Écris comme un humain, pas comme un robot corporate"""
-
-        mode = get_content_mode(request)
-        system_prompt += f"\n{POST_MODE_INSTRUCTIONS[mode]}"
-
-        if web_context:
-            system_prompt += f"\n\n{web_context}"
-
+        # Étape 3: Générer le post
+        objective = get_objective(request)
+        platform = get_platform(request)
+        use_profile = str(request.data.get('use_profile', 'true')).lower() != 'false'
         user_context = get_user_context(request)
-        if user_context:
-            system_prompt += f"\n\n{user_context}"
+        system_prompt = build_system_prompt(objective, tone, platform=platform, profile=user_context, web_context=web_context, use_profile=use_profile)
 
         user_message = f"Voici le contexte à transformer en post LinkedIn :\n\n{full_context}"
         if web_context:
@@ -386,8 +324,7 @@ def generate_variants(request):
         except (PromptTemplate.DoesNotExist, ValueError):
             pass
 
-    valid_tones = ['professionnel', 'inspirant', 'storytelling', 'educatif', 'humoristique']
-    if tone not in valid_tones:
+    if tone not in VALID_TONES:
         tone = 'professionnel'
 
     if not summary.strip() and not images:
@@ -432,36 +369,11 @@ def generate_variants(request):
         web_context = enrich_context(full_context)
 
         # Générer plusieurs variantes
-        system_prompt = f"""Tu es un ghostwriter LinkedIn d'élite. Génère {num_variants} variantes RADICALEMENT DIFFÉRENTES d'un post LinkedIn.
-
-RÈGLE N°1 — LE HOOK (première ligne de chaque variante) :
-La première ligne doit stopper le scroll. Chaque variante DOIT utiliser une technique de hook DIFFÉRENTE parmi :
-- Déclaration choc : "J'ai refusé une augmentation de 30%. Voici pourquoi."
-- Question provocante : "Et si tout ce qu'on vous a appris sur le management était faux ?"
-- Chiffre frappant : "97% des startups échouent. La mienne aussi. 3 fois."
-- Histoire personnelle : "Il y a 2 ans, j'ai été viré. Meilleure chose qui me soit arrivée."
-- Confession : "Je vais vous dire un truc que personne n'ose dire dans notre industrie."
-NE COMMENCE JAMAIS par : "🚀 Ravi de...", "Je suis heureux de...", "Aujourd'hui je voudrais..."
-
-CHAQUE VARIANTE doit avoir :
-- Un angle et une structure narrative différente
-- Un hook utilisant une technique différente des autres variantes
-- Ton : {tone}
-- Entre 150 et 300 mots
-- Emojis avec parcimonie (2-4 max, jamais en début de post)
-- 3-5 hashtags à la fin
-- Un style humain, pas corporate
-
-IMPORTANT : Sépare les variantes par "---VARIANTE---" (exactement ce séparateur).
-Ne numérote pas, commence directement par le contenu.
-Retourne UNIQUEMENT les posts, sans introduction ni commentaire."""
-
-        if web_context:
-            system_prompt += f"\n\n{web_context}"
-
+        objective = get_objective(request)
+        platform = get_platform(request)
+        use_profile = str(request.data.get('use_profile', 'true')).lower() != 'false'
         user_context = get_user_context(request)
-        if user_context:
-            system_prompt += f"\n\n{user_context}"
+        system_prompt = build_variants_system_prompt(objective, tone, num_variants, platform=platform, profile=user_context, web_context=web_context, use_profile=use_profile)
 
         variants_user_message = f"Voici le contexte à transformer en posts LinkedIn :\n\n{full_context}"
         if web_context:
@@ -542,8 +454,7 @@ def regenerate_single_variant(request):
     existing_variants = request.data.get('existing_variants', [])
     variant_index = request.data.get('variant_index', 0)
 
-    valid_tones = ['professionnel', 'inspirant', 'storytelling', 'educatif', 'humoristique']
-    if tone not in valid_tones:
+    if tone not in VALID_TONES:
         tone = 'professionnel'
 
     if not summary.strip():
@@ -568,29 +479,11 @@ def regenerate_single_variant(request):
             for i, v in enumerate(other_variants):
                 avoid_context += f"\n--- Variante existante {i+1} ---\n{v[:200]}...\n"
 
-        system_prompt = f"""Tu es un ghostwriter LinkedIn d'élite. Génère UNE SEULE nouvelle variante d'un post LinkedIn.
-
-RÈGLE N°1 — LE HOOK :
-La première ligne doit stopper le scroll. Utilise une de ces techniques :
-- Déclaration choc ou contre-intuitive
-- Question provocante
-- Chiffre frappant
-- Histoire personnelle brute
-- Confession audacieuse
-NE COMMENCE JAMAIS par : "🚀 Ravi de...", "Je suis heureux de...", "Aujourd'hui je voudrais..."
-
-CONTRAINTES :
-- Ton : {tone}
-- Entre 150 et 300 mots
-- Emojis avec parcimonie (2-4 max, jamais en début de post)
-- 3-5 hashtags à la fin
-- Retourne UNIQUEMENT le post, sans commentaire ni explication
-- L'angle et le hook doivent être DIFFÉRENTS des variantes existantes
-- Écris comme un humain, pas comme un robot corporate"""
-
+        objective = get_objective(request)
+        platform = get_platform(request)
+        use_profile = str(request.data.get('use_profile', 'true')).lower() != 'false'
         user_context = get_user_context(request)
-        if user_context:
-            system_prompt += f"\n\n{user_context}"
+        system_prompt = build_single_variant_prompt(objective, tone, platform=platform, profile=user_context, use_profile=use_profile)
 
         raw_content = generate_text(
             model_id=model_id,

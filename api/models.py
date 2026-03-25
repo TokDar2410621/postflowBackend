@@ -222,6 +222,7 @@ class UserProfile(models.Model):
                     self.target_audience, self.writing_style, self.bio])
 
     def build_prompt_context(self):
+        """Build profile context for prompt injection. Objective handling is in prompts.py."""
         if not self.has_context:
             return ""
         parts = ["CONTEXTE DE L'AUTEUR :"]
@@ -241,13 +242,6 @@ class UserProfile(models.Model):
             parts.append(f"\nEXEMPLES DE POSTS QUE L'AUTEUR APPRÉCIE :\n{self.example_posts}")
         if self.additional_context:
             parts.append(f"\nCONTEXTE ADDITIONNEL :\n{self.additional_context}")
-        if self.content_mode == 'job_search':
-            parts.append("\n🎯 Objectif LinkedIn : RECHERCHE D'EMPLOI — Le contenu doit positionner l'auteur comme expert, attirer les recruteurs et démontrer ses compétences.")
-        elif self.content_mode == 'lead_magnet':
-            parts.append("\n🧲 Objectif LinkedIn : LEAD MAGNET — Le contenu doit donner de la valeur, teaser une ressource, et pousser les gens à commenter pour la recevoir.")
-        else:
-            parts.append("\n🎯 Objectif LinkedIn : CRÉATION D'AUDIENCE — Le contenu doit maximiser le reach, l'engagement et les partages.")
-        parts.append("\nAdapte le post à ce profil. Utilise un vocabulaire et des exemples cohérents avec son secteur et son audience.")
         return "\n".join(parts)
 
 
