@@ -10,7 +10,7 @@ from rest_framework import status
 from django.conf import settings
 import anthropic
 
-from .views import get_user_context, get_content_mode
+from .views import get_user_context, get_objective, get_platform
 from .billing import check_generation_limit, increment_usage
 from .websearch import enrich_context
 
@@ -124,7 +124,7 @@ def generate_carousel(request):
     num_slides = max(5, min(10, int(num_slides)))
 
     user_context = get_user_context(request)
-    mode = get_content_mode(request)
+    mode = get_objective(request)
 
     # Enrichir avec recherche web si nécessaire
     web_context = enrich_context(topic)
