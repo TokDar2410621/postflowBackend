@@ -26,7 +26,8 @@ from .models import (
 from .billing import check_generation_limit, increment_usage
 from .llm import get_user_plan, resolve_model, generate_text
 from .websearch import enrich_context
-from .views import extract_hashtags, POST_MODE_INSTRUCTIONS
+from .views import extract_hashtags
+from .prompts import build_system_prompt
 from .carousel import validate_slides, CAROUSEL_MODE_INSTRUCTIONS, TEMPLATE_INSTRUCTIONS
 from .infographic import validate_infographic
 from .images import generate_image_for_post
@@ -130,47 +131,26 @@ def _get_user_context(config: AutopilotConfig):
 def _generate_post_content(config, topic, angle, web_context, kb_context=""):
     """Generate a text post."""
     tone = config.tone or 'professionnel'
-
-    system_prompt = f"""Tu es un ghostwriter LinkedIn d'élite. Tu crées des posts qui génèrent des milliers de vues et d'interactions.
-
-RÈGLE N°1 — LE HOOK (première ligne) :
-La première ligne est la PLUS IMPORTANTE. Elle doit stopper le scroll. Techniques à utiliser :
-- Déclaration choc ou contre-intuitive
-- Question provocante
-- Chiffre frappant
-- Histoire personnelle
-- Pattern interrupt
-- Confession
-NE COMMENCE JAMAIS par : "🚀 Ravi de...", "Je suis heureux de...", "Aujourd'hui je voudrais...", "🎉 Excited to..."
-
-STRUCTURE :
-- Hook percutant (1 ligne seule)
-- Ligne vide
-- Développement avec des phrases courtes et percutantes
-- 1 idée par ligne, aère le texte avec des sauts de ligne
-- Utilise des emojis avec parcimonie (2-4 max, jamais en début de post)
-- Termine par un appel à l'action engageant ou une question ouverte
-
-CONTRAINTES :
-- Ton : {tone}
-- Entre 150 et 300 mots
-- N'utilise PAS de hashtags dans le corps du texte, ajoute 3-5 hashtags à la fin
-- Retourne UNIQUEMENT le post, sans commentaire ni explication
-- Écris comme un humain, pas comme un robot corporate"""
-
-    mode = config.content_mode or 'audience_growth'
-    if mode in POST_MODE_INSTRUCTIONS:
-        system_prompt += f"\n{POST_MODE_INSTRUCTIONS[mode]}"
-
-    if kb_context:
-        system_prompt += f"\n\n{kb_context}"
-
-    if web_context:
-        system_prompt += f"\n\n{web_context}"
-
+    objective = config.content_mode or 'audience_growth'
     user_ctx = _get_user_context(config)
-    if user_ctx:
-        system_prompt += f"\n\n{user_ctx}"
+
+    # Combine web + kb context
+    full_web_context = ""
+    if kb_context and web_context:
+        full_web_context = f"{kb_context}\n\n{web_context}"
+    elif kb_context:
+        full_web_context = kb_context
+    elif web_context:
+        full_web_context = web_context
+
+    system_prompt = build_system_prompt(
+        objective=objective,
+        tone=tone,
+        platform='linkedin',
+        profile=user_ctx,
+        web_context=full_web_context,
+        use_profile=True,
+    )
 
     user_message = f"Écris un post LinkedIn sur le sujet suivant : {topic}\n\nAngle à adopter : {angle}"
 
