@@ -297,3 +297,41 @@ def web_image_search(request):
             {'error': 'Erreur lors de la recherche d\'images'},
             status=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def proxy_image(request):
+    """
+    Proxy an external image to avoid CORS issues.
+    GET /api/web/proxy-image/?url=https://...
+    Returns the image bytes with correct content type.
+    """
+    import requests
+    from django.http import HttpResponse
+
+    url = request.query_params.get('url', '').strip()
+    if not url:
+        return Response({'error': 'Le paramètre url est requis'}, status=http_status.HTTP_400_BAD_REQUEST)
+
+    # Basic validation
+    if not url.startswith('https://'):
+        return Response({'error': 'Seules les URLs HTTPS sont acceptées'}, status=http_status.HTTP_400_BAD_REQUEST)
+
+    try:
+        resp = requests.get(url, timeout=10, headers={
+            'User-Agent': 'Mozilla/5.0 (compatible; PostFlow/1.0)',
+        })
+        resp.raise_for_status()
+
+        content_type = resp.headers.get('Content-Type', 'image/jpeg')
+        if not content_type.startswith('image/'):
+            return Response({'error': 'URL ne pointe pas vers une image'}, status=http_status.HTTP_400_BAD_REQUEST)
+
+        response = HttpResponse(resp.content, content_type=content_type)
+        response['Cache-Control'] = 'public, max-age=86400'
+        return response
+
+    except requests.RequestException as e:
+        logger.warning(f"Image proxy failed for {url}: {e}")
+        return Response({'error': 'Impossible de charger l\'image'}, status=http_status.HTTP_502_BAD_GATEWAY)

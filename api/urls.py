@@ -98,6 +98,7 @@ urlpatterns = [
     # Web search
     path('web/search/', websearch.web_search, name='web_search'),
     path('web/images/', websearch.web_image_search, name='web_image_search'),
+    path('web/proxy-image/', websearch.proxy_image, name='proxy_image'),
 
     # Autopilot
     path('autopilot/config/', autopilot.get_autopilot_config, name='autopilot_config_get'),
