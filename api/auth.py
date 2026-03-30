@@ -77,6 +77,7 @@ def register(request):
             'id': user.id,
             'username': user.username,
             'email': user.email,
+            'is_staff': user.is_staff,
         },
         'tokens': {
             'refresh': str(refresh),
@@ -125,6 +126,7 @@ def login(request):
             'id': user.id,
             'username': user.username,
             'email': user.email,
+            'is_staff': user.is_staff,
         },
         'tokens': {
             'refresh': str(refresh),

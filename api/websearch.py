@@ -11,7 +11,7 @@ import logging
 
 from django.conf import settings
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework import status as http_status
 import anthropic
@@ -300,7 +300,7 @@ def web_image_search(request):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 def proxy_image(request):
     """
     Proxy an external image to avoid CORS issues.
