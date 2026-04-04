@@ -1,5 +1,7 @@
 import base64
 import hashlib
+import json
+import logging
 import os
 import secrets
 from datetime import timedelta
@@ -13,10 +15,13 @@ from django.shortcuts import redirect
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
+from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import TwitterAccount
+from .models import TwitterAccount, UserProfile, Subscription
+
+logger = logging.getLogger(__name__)
 
 TWITTER_AUTH_URL = "https://twitter.com/i/oauth2/authorize"
 TWITTER_TOKEN_URL = "https://api.twitter.com/2/oauth2/token"
@@ -41,18 +46,7 @@ def _basic_auth_header():
     return base64.b64encode(credential.encode()).decode()
 
 
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def twitter_init_auth(request):
-    """Génère l'URL d'autorisation Twitter OAuth 2.0 PKCE"""
-    code_verifier, code_challenge = _generate_pkce()
-    state = secrets.token_urlsafe(32)
-
-    cache.set(f'twitter_oauth:{state}', {
-        'user_id': str(request.user.id),
-        'code_verifier': code_verifier,
-    }, timeout=600)
-
+def _build_auth_url(state, code_challenge):
     params = {
         'response_type': 'code',
         'client_id': settings.TWITTER_CLIENT_ID,
@@ -62,29 +56,60 @@ def twitter_init_auth(request):
         'code_challenge': code_challenge,
         'code_challenge_method': 'S256',
     }
-    return Response({'auth_url': f"{TWITTER_AUTH_URL}?{urlencode(params)}"})
+    return f"{TWITTER_AUTH_URL}?{urlencode(params)}"
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def twitter_auth(request):
+    """Twitter login (unauthenticated) — redirect to Twitter OAuth"""
+    code_verifier, code_challenge = _generate_pkce()
+    state = secrets.token_urlsafe(32)
+
+    cache.set(f'twitter_oauth:{state}', {
+        'action': 'login',
+        'code_verifier': code_verifier,
+    }, timeout=600)
+
+    return redirect(_build_auth_url(state, code_challenge))
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def twitter_init_auth(request):
+    """Twitter connect (authenticated) — generate OAuth URL"""
+    code_verifier, code_challenge = _generate_pkce()
+    state = secrets.token_urlsafe(32)
+
+    cache.set(f'twitter_oauth:{state}', {
+        'action': 'connect',
+        'user_id': str(request.user.id),
+        'code_verifier': code_verifier,
+    }, timeout=600)
+
+    return Response({'auth_url': _build_auth_url(state, code_challenge)})
 
 
 @api_view(['GET'])
 def twitter_callback(request):
-    """Callback OAuth Twitter — échange le code contre les tokens"""
+    """Callback OAuth Twitter — handles both login and connect flows"""
     code = request.GET.get('code')
     state = request.GET.get('state', '')
     error = request.GET.get('error')
-    frontend = getattr(settings, 'FRONTEND_URL', 'https://smart-post-assistant.vercel.app')
+    frontend = getattr(settings, 'FRONTEND_URL', 'http://localhost:8080')
 
     if error:
-        return redirect(f"{frontend}/profile?twitter_error={error}")
+        return redirect(f"{frontend}/login?twitter_error={error}")
 
     cached = cache.get(f'twitter_oauth:{state}')
     if not cached:
-        return redirect(f"{frontend}/profile?twitter_error=invalid_state")
+        return redirect(f"{frontend}/login?twitter_error=invalid_state")
 
     cache.delete(f'twitter_oauth:{state}')
-    user_id = cached['user_id']
+    action = cached.get('action', 'connect')
     code_verifier = cached['code_verifier']
 
-    # Échange du code contre les tokens
+    # Exchange code for tokens
     token_resp = requests.post(
         TWITTER_TOKEN_URL,
         headers={
@@ -100,45 +125,112 @@ def twitter_callback(request):
         timeout=10,
     )
     if not token_resp.ok:
-        import logging
-        logger = logging.getLogger(__name__)
         logger.error(f"Twitter token exchange failed: {token_resp.status_code} — {token_resp.text}")
-        return redirect(f"{frontend}/profile?twitter_error=token_failed")
+        return redirect(f"{frontend}/login?twitter_error=token_failed")
 
     tokens = token_resp.json()
     access_token = tokens['access_token']
     refresh_token = tokens.get('refresh_token', '')
     expires_in = tokens.get('expires_in', 7200)
 
-    # Récupération du profil Twitter
+    # Get Twitter profile
     user_resp = requests.get(
         f"{TWITTER_USER_URL}?user.fields=profile_image_url,name",
         headers={'Authorization': f'Bearer {access_token}'},
         timeout=10,
     )
     if not user_resp.ok:
-        return redirect(f"{frontend}/profile?twitter_error=user_info_failed")
+        return redirect(f"{frontend}/login?twitter_error=user_info_failed")
 
     tw = user_resp.json()['data']
+    twitter_id = tw['id']
+    username = tw['username']
+    name = tw.get('name', '')
+    profile_pic = tw.get('profile_image_url', '').replace('_normal', '_400x400')
 
-    try:
-        django_user = DjangoUser.objects.get(id=user_id)
-    except DjangoUser.DoesNotExist:
-        return redirect(f"{frontend}/profile?twitter_error=user_not_found")
+    if action == 'login':
+        # --- Login flow: find or create Django user ---
+        existing_account = TwitterAccount.objects.filter(twitter_id=twitter_id).select_related('user').first()
 
-    TwitterAccount.objects.update_or_create(
-        twitter_id=tw['id'],
-        defaults={
-            'user': django_user,
-            'username': tw['username'],
-            'name': tw.get('name', ''),
-            'profile_picture_url': tw.get('profile_image_url', '').replace('_normal', '_400x400'),
-            'access_token': access_token,
-            'refresh_token': refresh_token,
-            'token_expires_at': timezone.now() + timedelta(seconds=expires_in),
-        },
-    )
-    return redirect(f"{frontend}/profile?twitter_connected=1")
+        if existing_account and existing_account.user:
+            user = existing_account.user
+            existing_account.access_token = access_token
+            existing_account.refresh_token = refresh_token
+            existing_account.name = name
+            existing_account.profile_picture_url = profile_pic
+            existing_account.token_expires_at = timezone.now() + timedelta(seconds=expires_in)
+            existing_account.save()
+        else:
+            # Find existing user by username pattern or create new one
+            user = None
+            # Try to find by existing account link
+            if not user:
+                base_username = username or f'x_{twitter_id}'
+                new_username = base_username
+                counter = 1
+                while DjangoUser.objects.filter(username=new_username).exists():
+                    new_username = f'{base_username}_{counter}'
+                    counter += 1
+
+                user = DjangoUser.objects.create_user(
+                    username=new_username,
+                    first_name=name.split(' ')[0] if name else '',
+                    last_name=' '.join(name.split(' ')[1:]) if name and ' ' in name else '',
+                )
+                UserProfile.objects.get_or_create(user=user)
+                Subscription.objects.get_or_create(user=user, defaults={'plan': 'free', 'status': 'active'})
+
+            TwitterAccount.objects.update_or_create(
+                twitter_id=twitter_id,
+                defaults={
+                    'user': user,
+                    'username': username,
+                    'name': name,
+                    'profile_picture_url': profile_pic,
+                    'access_token': access_token,
+                    'refresh_token': refresh_token,
+                    'token_expires_at': timezone.now() + timedelta(seconds=expires_in),
+                },
+            )
+
+        # Generate JWT tokens
+        refresh = RefreshToken.for_user(user)
+        auth_data = {
+            'user': {
+                'id': user.id,
+                'username': user.username,
+                'email': user.email or '',
+                'is_staff': user.is_staff,
+            },
+            'tokens': {
+                'refresh': str(refresh),
+                'access': str(refresh.access_token),
+            }
+        }
+        encoded = base64.urlsafe_b64encode(json.dumps(auth_data).encode()).decode()
+        return redirect(f"{frontend}?twitter_auth={encoded}")
+
+    else:
+        # --- Connect flow: link to existing user ---
+        user_id = cached.get('user_id')
+        try:
+            django_user = DjangoUser.objects.get(id=user_id)
+        except DjangoUser.DoesNotExist:
+            return redirect(f"{frontend}/profile?twitter_error=user_not_found")
+
+        TwitterAccount.objects.update_or_create(
+            twitter_id=twitter_id,
+            defaults={
+                'user': django_user,
+                'username': username,
+                'name': name,
+                'profile_picture_url': profile_pic,
+                'access_token': access_token,
+                'refresh_token': refresh_token,
+                'token_expires_at': timezone.now() + timedelta(seconds=expires_in),
+            },
+        )
+        return redirect(f"{frontend}/profile?twitter_connected=1")
 
 
 @api_view(['GET'])

@@ -87,6 +87,7 @@ urlpatterns = [
     path('comments/<int:post_id>/', comments.fetch_comments, name='fetch_comments'),
 
     # Twitter/X OAuth + publish
+    path('auth/twitter/', twitter.twitter_auth, name='twitter_auth'),
     path('auth/twitter/init/', twitter.twitter_init_auth, name='twitter_init_auth'),
     path('auth/twitter/callback/', twitter.twitter_callback, name='twitter_callback'),
     path('twitter/status/', twitter.twitter_status, name='twitter_status'),
