@@ -19,7 +19,8 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import TwitterAccount, UserProfile, Subscription
+from .models import TwitterAccount
+from .social_auth import find_or_create_user
 
 logger = logging.getLogger(__name__)
 
@@ -150,48 +151,20 @@ def twitter_callback(request):
 
     if action == 'login':
         # --- Login flow: find or create Django user ---
-        existing_account = TwitterAccount.objects.filter(twitter_id=twitter_id).select_related('user').first()
+        user = find_or_create_user('twitter', twitter_id, '', name, username)
 
-        if existing_account and existing_account.user:
-            user = existing_account.user
-            existing_account.access_token = access_token
-            existing_account.refresh_token = refresh_token
-            existing_account.name = name
-            existing_account.profile_picture_url = profile_pic
-            existing_account.token_expires_at = timezone.now() + timedelta(seconds=expires_in)
-            existing_account.save()
-        else:
-            # Find existing user by username pattern or create new one
-            user = None
-            # Try to find by existing account link
-            if not user:
-                base_username = username or f'x_{twitter_id}'
-                new_username = base_username
-                counter = 1
-                while DjangoUser.objects.filter(username=new_username).exists():
-                    new_username = f'{base_username}_{counter}'
-                    counter += 1
-
-                user = DjangoUser.objects.create_user(
-                    username=new_username,
-                    first_name=name.split(' ')[0] if name else '',
-                    last_name=' '.join(name.split(' ')[1:]) if name and ' ' in name else '',
-                )
-                UserProfile.objects.get_or_create(user=user)
-                Subscription.objects.get_or_create(user=user, defaults={'plan': 'free', 'status': 'active'})
-
-            TwitterAccount.objects.update_or_create(
-                twitter_id=twitter_id,
-                defaults={
-                    'user': user,
-                    'username': username,
-                    'name': name,
-                    'profile_picture_url': profile_pic,
-                    'access_token': access_token,
-                    'refresh_token': refresh_token,
-                    'token_expires_at': timezone.now() + timedelta(seconds=expires_in),
-                },
-            )
+        TwitterAccount.objects.update_or_create(
+            twitter_id=twitter_id,
+            defaults={
+                'user': user,
+                'username': username,
+                'name': name,
+                'profile_picture_url': profile_pic,
+                'access_token': access_token,
+                'refresh_token': refresh_token,
+                'token_expires_at': timezone.now() + timedelta(seconds=expires_in),
+            },
+        )
 
         # Generate JWT tokens
         refresh = RefreshToken.for_user(user)

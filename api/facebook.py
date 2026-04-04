@@ -18,7 +18,8 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import FacebookAccount, UserProfile, Subscription
+from .models import FacebookAccount
+from .social_auth import find_or_create_user
 
 logger = logging.getLogger(__name__)
 
@@ -158,52 +159,20 @@ def facebook_callback(request):
 
     if action == 'login':
         # --- Login flow: find or create Django user ---
-        existing_account = FacebookAccount.objects.filter(facebook_id=fb_id).select_related('user').first()
+        user = find_or_create_user('facebook', fb_id, email, name)
 
-        if existing_account and existing_account.user:
-            user = existing_account.user
-            existing_account.access_token = access_token
-            existing_account.page_id = page_id
-            existing_account.page_access_token = page_access_token
-            existing_account.name = name
-            existing_account.profile_picture_url = picture
-            existing_account.token_expires_at = timezone.now() + timedelta(seconds=expires_in)
-            existing_account.save()
-        else:
-            # Find existing user by email or create new one
-            user = None
-            if email:
-                user = DjangoUser.objects.filter(email=email).first()
-
-            if not user:
-                username = name.replace(' ', '_').lower() if name else f'fb_{fb_id}'
-                base_username = username
-                counter = 1
-                while DjangoUser.objects.filter(username=username).exists():
-                    username = f'{base_username}_{counter}'
-                    counter += 1
-
-                user = DjangoUser.objects.create_user(
-                    username=username,
-                    email=email,
-                    first_name=name.split(' ')[0] if name else '',
-                    last_name=' '.join(name.split(' ')[1:]) if name and ' ' in name else '',
-                )
-                UserProfile.objects.get_or_create(user=user)
-                Subscription.objects.get_or_create(user=user, defaults={'plan': 'free', 'status': 'active'})
-
-            FacebookAccount.objects.update_or_create(
-                facebook_id=fb_id,
-                defaults={
-                    'user': user,
-                    'name': name,
-                    'profile_picture_url': picture,
-                    'access_token': access_token,
-                    'page_id': page_id,
-                    'page_access_token': page_access_token,
-                    'token_expires_at': timezone.now() + timedelta(seconds=expires_in),
-                },
-            )
+        FacebookAccount.objects.update_or_create(
+            facebook_id=fb_id,
+            defaults={
+                'user': user,
+                'name': name,
+                'profile_picture_url': picture,
+                'access_token': access_token,
+                'page_id': page_id,
+                'page_access_token': page_access_token,
+                'token_expires_at': timezone.now() + timedelta(seconds=expires_in),
+            },
+        )
 
         # Generate JWT tokens
         refresh = RefreshToken.for_user(user)

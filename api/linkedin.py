@@ -17,7 +17,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import LinkedInAccount, PublishedPost, UserProfile, Subscription
+from .models import LinkedInAccount, PublishedPost
+from .social_auth import find_or_create_user
 
 
 import logging
@@ -156,54 +157,20 @@ def _linkedin_callback_inner(request):
     expires_at = timezone.now() + timedelta(seconds=expires_in)
 
     if state == 'login':
-        # --- Flow LOGIN : créer/trouver un User Django + JWT ---
-        existing_account = LinkedInAccount.objects.filter(linkedin_id=linkedin_id).select_related('user').first()
+        # --- Flow LOGIN : trouver un User existant (tous providers) ou créer ---
+        user = find_or_create_user('linkedin', linkedin_id, email, name)
 
-        if existing_account and existing_account.user:
-            # Utilisateur existant → mettre à jour le token LinkedIn
-            user = existing_account.user
-            existing_account.access_token = access_token
-            existing_account.expires_at = expires_at
-            existing_account.name = name
-            existing_account.profile_picture_url = picture
-            existing_account.headline = headline
-            existing_account.save()
-        else:
-            # Chercher un User existant avec le même email (fusion de comptes)
-            user = None
-            if email:
-                user = User.objects.filter(email=email).first()
-
-            if not user:
-                # Aucun compte existant → créer un nouveau User
-                username = name.replace(' ', '_').lower() if name else f'linkedin_{linkedin_id}'
-                base_username = username
-                counter = 1
-                while User.objects.filter(username=username).exists():
-                    username = f'{base_username}_{counter}'
-                    counter += 1
-
-                user = User.objects.create_user(
-                    username=username,
-                    email=email,
-                    first_name=name.split(' ')[0] if name else '',
-                    last_name=' '.join(name.split(' ')[1:]) if name and ' ' in name else '',
-                )
-                UserProfile.objects.get_or_create(user=user)
-                Subscription.objects.get_or_create(user=user, defaults={'plan': 'free', 'status': 'active'})
-
-            # Lier le compte LinkedIn au User (existant ou nouveau)
-            LinkedInAccount.objects.update_or_create(
-                linkedin_id=linkedin_id,
-                defaults={
-                    'user': user,
-                    'name': name,
-                    'profile_picture_url': picture,
-                    'headline': headline,
-                    'access_token': access_token,
-                    'expires_at': expires_at,
-                }
-            )
+        LinkedInAccount.objects.update_or_create(
+            linkedin_id=linkedin_id,
+            defaults={
+                'user': user,
+                'name': name,
+                'profile_picture_url': picture,
+                'headline': headline,
+                'access_token': access_token,
+                'expires_at': expires_at,
+            }
+        )
 
         # Générer les JWT tokens
         refresh = RefreshToken.for_user(user)
