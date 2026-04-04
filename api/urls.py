@@ -94,6 +94,7 @@ urlpatterns = [
     path('twitter/publish/', twitter.twitter_publish, name='twitter_publish'),
 
     # Facebook
+    path('auth/facebook/', facebook.facebook_auth, name='facebook_auth'),
     path('auth/facebook/init/', facebook.facebook_init_auth, name='facebook_init_auth'),
     path('auth/facebook/callback/', facebook.facebook_callback, name='facebook_callback'),
     path('facebook/status/', facebook.facebook_status, name='facebook_status'),
