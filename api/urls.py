@@ -30,6 +30,7 @@ urlpatterns = [
     path('auth/claim-session/', auth.claim_session, name='claim_session'),
     path('auth/password-reset/', auth.password_reset_request, name='password_reset_request'),
     path('auth/password-reset/confirm/', auth.password_reset_confirm, name='password_reset_confirm'),
+    path('auth/delete-account/', auth.delete_account, name='delete_account'),
 
     # Posts
     path('generate/', views.generate_post, name='generate_post'),

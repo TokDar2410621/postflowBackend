@@ -246,6 +246,23 @@ def claim_session(request):
     return Response({'claimed': claimed})
 
 
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def delete_account(request):
+    """Supprime le compte utilisateur et toutes ses données associées"""
+    user = request.user
+    try:
+        # Django CASCADE supprime automatiquement les objets liés (posts, templates, etc.)
+        user.delete()
+        return Response({'message': 'Compte et données supprimés avec succès'})
+    except Exception as e:
+        logger.error(f"Delete account error for user {user.id}: {e}", exc_info=True)
+        return Response(
+            {'error': 'Erreur lors de la suppression du compte'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
 class PasswordResetThrottle(AnonRateThrottle):
     scope = 'password_reset'
 
