@@ -19,6 +19,8 @@ from . import pdf_views
 from . import websearch
 from . import autopilot
 from . import knowledge_base
+from . import facebook
+from . import instagram
 
 urlpatterns = [
     # Auth
@@ -90,6 +92,20 @@ urlpatterns = [
     path('twitter/status/', twitter.twitter_status, name='twitter_status'),
     path('twitter/disconnect/', twitter.twitter_disconnect, name='twitter_disconnect'),
     path('twitter/publish/', twitter.twitter_publish, name='twitter_publish'),
+
+    # Facebook
+    path('auth/facebook/init/', facebook.facebook_init_auth, name='facebook_init_auth'),
+    path('auth/facebook/callback/', facebook.facebook_callback, name='facebook_callback'),
+    path('facebook/status/', facebook.facebook_status, name='facebook_status'),
+    path('facebook/disconnect/', facebook.facebook_disconnect, name='facebook_disconnect'),
+    path('facebook/publish/', facebook.facebook_publish, name='facebook_publish'),
+
+    # Instagram
+    path('auth/instagram/init/', instagram.instagram_init_auth, name='instagram_init_auth'),
+    path('auth/instagram/callback/', instagram.instagram_callback, name='instagram_callback'),
+    path('instagram/status/', instagram.instagram_status, name='instagram_status'),
+    path('instagram/disconnect/', instagram.instagram_disconnect, name='instagram_disconnect'),
+    path('instagram/publish/', instagram.instagram_publish, name='instagram_publish'),
 
     # Analytics
     # Repurpose (URL extraction)
