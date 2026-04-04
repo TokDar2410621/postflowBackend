@@ -17,7 +17,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import LinkedInAccount, PublishedPost
+from .models import LinkedInAccount, PublishedPost, UserProfile, Subscription
 
 
 import logging
@@ -75,6 +75,15 @@ def linkedin_init_auth(request):
 @api_view(['GET'])
 def linkedin_callback(request):
     """Callback OAuth - échange le code contre un token"""
+    frontend = getattr(settings, 'FRONTEND_URL', 'http://localhost:8080')
+    try:
+        return _linkedin_callback_inner(request)
+    except Exception as e:
+        logger.error(f"LinkedIn callback error: {e}", exc_info=True)
+        return redirect(f"{frontend}?linkedin_error=server_error")
+
+
+def _linkedin_callback_inner(request):
     code = request.GET.get('code')
     error = request.GET.get('error')
     raw_state = request.GET.get('state', '')
@@ -180,6 +189,8 @@ def linkedin_callback(request):
                     first_name=name.split(' ')[0] if name else '',
                     last_name=' '.join(name.split(' ')[1:]) if name and ' ' in name else '',
                 )
+                UserProfile.objects.get_or_create(user=user)
+                Subscription.objects.get_or_create(user=user, defaults={'plan': 'free', 'status': 'active'})
 
             # Lier le compte LinkedIn au User (existant ou nouveau)
             LinkedInAccount.objects.update_or_create(
