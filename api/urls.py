@@ -21,6 +21,7 @@ from . import autopilot
 from . import knowledge_base
 from . import facebook
 from . import instagram
+from . import adapt
 
 urlpatterns = [
     # Auth
@@ -143,6 +144,9 @@ urlpatterns = [
     path('convert/to-carousel/', convert.convert_to_carousel, name='convert_to_carousel'),
     path('convert/to-infographic/', convert.convert_to_infographic, name='convert_to_infographic'),
     path('convert/to-post/', convert.convert_to_post, name='convert_to_post'),
+
+    # Adapt (cross-platform)
+    path('adapt/', adapt.adapt_post, name='adapt_post'),
 
     # PDF Export (Playwright server-side)
     path('carousel/export-pdf/', pdf_views.export_carousel_pdf, name='export_carousel_pdf'),
