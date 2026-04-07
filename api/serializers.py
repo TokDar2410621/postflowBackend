@@ -13,5 +13,5 @@ class GeneratePostSerializer(serializers.Serializer):
 class GeneratedPostSerializer(serializers.ModelSerializer):
     class Meta:
         model = GeneratedPost
-        fields = ['id', 'summary', 'tone', 'generated_content', 'created_at']
+        fields = ['id', 'summary', 'tone', 'platform', 'generated_content', 'created_at']
         read_only_fields = ['id', 'generated_content', 'created_at']

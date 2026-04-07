@@ -78,6 +78,29 @@ PAS de formules longues, PAS d'introductions. Droit au but.""",
 - Retourne UNIQUEMENT le(s) tweet(s), sans commentaire ni explication
 - Pour un thread, sépare chaque tweet par une ligne vide""",
     },
+    "instagram": {
+        "name": "Instagram",
+        "role_prefix": "expert en contenu Instagram engageant",
+        "hook": """RÈGLE N°1 — LA PREMIÈRE LIGNE :
+La caption Instagram doit accrocher immédiatement. Techniques :
+- Déclaration personnelle : "Ce que personne ne vous dit sur le freelancing..."
+- Question engageante : "Vous aussi vous faites cette erreur ?"
+- Storytelling visuel : "Ce matin, en ouvrant mon ordinateur, j'ai réalisé un truc."
+- Chiffre marquant : "365 jours. 200 posts. Voici ce que j'ai appris."
+- Intrigue : "J'ai failli tout arrêter. Et puis..."
+PAS de phrases corporate. Instagram = authenticité et émotion.""",
+        "format": """FORMAT INSTAGRAM :
+- Caption de 150 à 500 mots (les captions longues marchent bien sur Instagram)
+- Première ligne = hook (coupée après ~125 caractères dans le feed, doit donner envie de cliquer "...plus")
+- Aère avec des sauts de ligne
+- Utilise des emojis naturellement (plus que LinkedIn, moins que du spam)
+- Raconte une histoire ou partage une leçon
+- Termine par un CTA engageant ("Enregistre ce post", "Tag quelqu'un qui...", "Dis-moi en commentaire...")
+- 15-30 hashtags à la fin (séparés par un saut de ligne du texte principal)
+- Les hashtags doivent mélanger : niche (petits) + populaires (gros volume)
+- Ton authentique, personnel, émotionnel
+- Retourne UNIQUEMENT la caption, sans commentaire ni explication""",
+    },
 }
 
 # ── Objective-specific prompts ───────────────────────────────────────────

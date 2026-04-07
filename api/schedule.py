@@ -24,6 +24,10 @@ def list_scheduled_posts(request):
     """Liste les posts programmés de l'utilisateur"""
     posts = ScheduledPost.objects.filter(user=request.user)
 
+    platform = request.query_params.get('platform')
+    if platform and platform != 'all':
+        posts = posts.filter(platform=platform)
+
     date_range = request.query_params.get('date_range')
     if date_range == '7':
         posts = posts.filter(scheduled_at__gte=timezone.now() - timedelta(days=7))
@@ -47,6 +51,7 @@ def list_scheduled_posts(request):
         'is_autopilot': post.is_autopilot,
         'autopilot_status': post.autopilot_status,
         'autopilot_topic': post.autopilot_topic,
+        'platform': post.platform,
     } for post in posts]
 
     return Response(data)

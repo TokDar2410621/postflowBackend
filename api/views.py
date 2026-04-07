@@ -270,6 +270,7 @@ Résumé additionnel fourni par l'utilisateur :
             user=request.user,
             summary=summary if summary.strip() else (image_context[:500] if image_context else ''),
             tone=tone,
+            platform=platform,
             generated_content=generated_content
         )
 
@@ -573,6 +574,11 @@ RÈGLES:
 def list_posts(request):
     posts = GeneratedPost.objects.filter(user=request.user)
 
+    # Filter by platform
+    platform = request.query_params.get('platform')
+    if platform and platform != 'all':
+        posts = posts.filter(platform=platform)
+
     # Filter by tone
     tone = request.query_params.get('tone')
     if tone:
@@ -600,6 +606,10 @@ def list_published_posts(request):
     """Liste les posts publiés avec stats, avec filtres optionnels"""
     posts = PublishedPost.objects.filter(user=request.user)
 
+    platform = request.query_params.get('platform')
+    if platform and platform != 'all':
+        posts = posts.filter(platform=platform)
+
     tone = request.query_params.get('tone')
     if tone:
         posts = posts.filter(tone=tone)
@@ -626,6 +636,7 @@ def list_published_posts(request):
         'engagement_rate': p.engagement_rate,
         'has_images': p.has_images,
         'linkedin_post_id': p.linkedin_post_id,
+        'platform': p.platform,
         'stats_updated_at': p.stats_updated_at.isoformat() if p.stats_updated_at else None,
     } for p in posts[:50]]
 

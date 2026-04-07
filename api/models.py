@@ -1,6 +1,13 @@
 from django.db import models
 from django.contrib.auth.models import User
 
+PLATFORM_CHOICES = [
+    ('linkedin', 'LinkedIn'),
+    ('facebook', 'Facebook'),
+    ('x', 'X (Twitter)'),
+    ('instagram', 'Instagram'),
+]
+
 
 class LinkedInAccount(models.Model):
     """Stocke les tokens OAuth LinkedIn"""
@@ -40,6 +47,7 @@ class GeneratedPost(models.Model):
     session_key = models.CharField(max_length=64, blank=True, db_index=True, verbose_name="Clé de session anonyme")
     summary = models.TextField(verbose_name="Résumé original")
     tone = models.CharField(max_length=20, choices=TONE_CHOICES, default='professionnel')
+    platform = models.CharField(max_length=20, choices=PLATFORM_CHOICES, default='linkedin', db_index=True)
     generated_content = models.TextField(verbose_name="Contenu généré")
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -69,6 +77,7 @@ class ScheduledPost(models.Model):
     images_data = models.JSONField(default=list, blank=True, verbose_name="Images en base64",
                                     help_text="Liste de {data: base64, mime_type: str}")
     published_at = models.DateTimeField(null=True, blank=True, verbose_name="Date de publication effective")
+    platform = models.CharField(max_length=20, choices=PLATFORM_CHOICES, default='linkedin', db_index=True)
 
     # Autopilot fields
     is_autopilot = models.BooleanField(default=False, verbose_name="Généré par autopilot")
@@ -193,6 +202,8 @@ class PublishedPost(models.Model):
     """Posts publiés avec leurs statistiques LinkedIn"""
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='published_posts', null=True, blank=True)
     linkedin_post_id = models.CharField(max_length=100, blank=True, verbose_name="ID du post LinkedIn")
+    external_post_id = models.CharField(max_length=200, blank=True, verbose_name="ID du post externe")
+    platform = models.CharField(max_length=20, choices=PLATFORM_CHOICES, default='linkedin', db_index=True)
     content = models.TextField(verbose_name="Contenu du post")
     published_at = models.DateTimeField(auto_now_add=True, verbose_name="Date de publication")
 
@@ -396,6 +407,7 @@ class SavedDraft(models.Model):
     hashtags = models.JSONField(default=list, blank=True)
     tone = models.CharField(max_length=20, blank=True)
     source = models.CharField(max_length=30, choices=SOURCE_CHOICES, default='variant')
+    platform = models.CharField(max_length=20, choices=PLATFORM_CHOICES, default='linkedin', db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
