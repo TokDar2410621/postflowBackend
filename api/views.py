@@ -156,6 +156,62 @@ Réponds en français."""
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+def generate_reel_script(request):
+    """Generate a Facebook Reel script (hook/body/cta)"""
+    import json as json_module
+    from .prompts import build_reel_script_prompt
+
+    topic = request.data.get('topic', '').strip()
+    tone = request.data.get('tone', 'humor')
+    post_target = request.data.get('post_target', 'page')
+    model = request.data.get('model')
+
+    if not topic:
+        return Response({'error': 'Le sujet est requis'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        model_id = resolve_model(request.user, model)
+        user_context = get_user_context(request)
+        system_prompt = build_reel_script_prompt(tone, post_target, user_context)
+
+        user_message = f"Sujet du Reel : {topic}"
+
+        raw = generate_text(
+            model_id=model_id,
+            system_prompt=system_prompt,
+            user_message=user_message,
+            max_tokens=512,
+        )
+
+        # Parse JSON from response
+        try:
+            # Try to extract JSON from potential markdown code blocks
+            cleaned = raw.strip()
+            if '```' in cleaned:
+                cleaned = cleaned.split('```json')[-1].split('```')[0].strip() if '```json' in cleaned else cleaned.split('```')[1].split('```')[0].strip()
+            result = json_module.loads(cleaned)
+        except (json_module.JSONDecodeError, IndexError):
+            # Fallback: try to find JSON in the response
+            import re
+            match = re.search(r'\{[^}]+\}', raw, re.DOTALL)
+            if match:
+                result = json_module.loads(match.group())
+            else:
+                return Response({'error': 'Impossible de parser le script genere'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response({
+            'hook': result.get('hook', ''),
+            'body': result.get('body', ''),
+            'cta': result.get('cta', ''),
+        })
+
+    except Exception as e:
+        logger.error(f"Reel script generation error: {e}", exc_info=True)
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
 @parser_classes([MultiPartParser, FormParser, JSONParser])
 def generate_post(request):
     """Génère un post LinkedIn à partir d'un résumé et/ou d'images"""

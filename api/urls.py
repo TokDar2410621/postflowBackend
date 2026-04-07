@@ -41,6 +41,7 @@ urlpatterns = [
     path('generate/variants/regenerate/', views.regenerate_single_variant, name='regenerate_single_variant'),
     path('generate/hashtags/', views.suggest_hashtags, name='suggest_hashtags'),
     path('generate/hook/', views.regenerate_hook, name='regenerate_hook'),
+    path('generate/reel-script/', views.generate_reel_script, name='generate_reel_script'),
     path('generate/first-comment/', views.generate_first_comment, name='generate_first_comment'),
     path('posts/published/', views.list_published_posts, name='list_published_posts'),
     path('posts/', views.list_posts, name='list_posts'),

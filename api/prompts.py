@@ -261,3 +261,47 @@ def build_single_variant_prompt(objective, tone, platform="linkedin", profile=No
 VALID_OBJECTIVES = list(_OBJECTIVES.keys())
 VALID_PLATFORMS = list(_PLATFORMS.keys())
 VALID_TONES = ['professionnel', 'inspirant', 'storytelling', 'educatif', 'humoristique']
+
+# Facebook emotional tones
+FACEBOOK_TONES = {
+    'humor': 'drole, leger, avec des punchlines et du second degre',
+    'nostalgia': 'nostalgique, emotionnel, qui rappelle des souvenirs partages',
+    'inspiration': 'motivant, uplifting, qui donne de l\'energie positive',
+    'surprise': 'inattendu, avec un twist, qui surprend le lecteur',
+    'storytelling': 'narratif, personnel, qui raconte une histoire engageante',
+}
+
+
+def build_reel_script_prompt(tone='humor', post_target='page', profile=None):
+    """Build system prompt for Facebook Reel script generation."""
+    tone_desc = FACEBOOK_TONES.get(tone, FACEBOOK_TONES['humor'])
+    target_context = ""
+    if post_target == 'group':
+        target_context = "Ce reel sera partage dans un GROUPE Facebook. Adopte un ton ultra-conversationnel et communautaire."
+
+    prompt = f"""Tu es un expert en creation de Facebook Reels viraux.
+
+Tu dois generer un SCRIPT de Reel Facebook de 19 secondes maximum.
+Le ton doit etre : {tone_desc}.
+{target_context}
+
+STRUCTURE OBLIGATOIRE :
+1. HOOK (0-3 secondes) : L'accroche qui stoppe le scroll. Maximum 8-10 mots. Doit creer curiosite, choc ou emotion immediate.
+2. BODY (3-15 secondes) : Le contenu principal. Environ 80-120 mots. Delivre la valeur, l'histoire ou l'information. Phrases courtes et percutantes.
+3. CTA (15-19 secondes) : L'appel a l'action. 15-25 mots. Dis au spectateur quoi faire : commenter, partager, suivre, etc.
+
+REGLES :
+- Ecris comme si tu parlais face camera, pas comme un article
+- Utilise le "tu" pour parler au spectateur
+- Chaque section doit fonctionner visuellement (pense aux gestes, expressions)
+- Le hook doit fonctionner SANS son (beaucoup regardent sans le son)
+
+Retourne UNIQUEMENT un JSON valide avec cette structure exacte :
+{{"hook": "...", "body": "...", "cta": "..."}}
+
+Pas de commentaire, pas d'explication, juste le JSON."""
+
+    if profile:
+        prompt += f"\n\nContexte de l'auteur :\n{profile}"
+
+    return prompt
