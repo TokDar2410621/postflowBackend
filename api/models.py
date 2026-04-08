@@ -259,6 +259,7 @@ class UserProfile(models.Model):
     example_posts = models.TextField(blank=True, verbose_name="Exemples de posts")
     additional_context = models.TextField(blank=True, verbose_name="Contexte additionnel")
     onboarding_completed = models.BooleanField(default=False, verbose_name="Onboarding terminé")
+    is_demo = models.BooleanField(default=False, verbose_name="Compte de démonstration", db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
