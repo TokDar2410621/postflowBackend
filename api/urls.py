@@ -152,6 +152,7 @@ urlpatterns = [
 
     # AI Consultants
     path('consultants/chat/', consultants.chat_with_consultant, name='consultant_chat'),
+    path('consultants/tts/', consultants.text_to_speech, name='consultant_tts'),
 
     # PDF Export (Playwright server-side)
     path('carousel/export-pdf/', pdf_views.export_carousel_pdf, name='export_carousel_pdf'),

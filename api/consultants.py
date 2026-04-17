@@ -5,6 +5,7 @@ Each consultant has a unique system prompt and personality.
 import json
 import logging
 
+from django.conf import settings
 from django.http import StreamingHttpResponse
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
@@ -14,6 +15,17 @@ from rest_framework.response import Response
 from .llm import generate_chat_stream
 
 logger = logging.getLogger(__name__)
+
+# OpenAI TTS voices — each consultant gets a distinct voice
+# Available: alloy, echo, fable, onyx, nova, shimmer
+CONSULTANT_VOICES = {
+    "marie": "nova",      # Female, warm
+    "karim": "onyx",      # Male, deep
+    "sophie": "shimmer",  # Female, expressive
+    "alex": "echo",       # Male, casual
+    "thomas": "fable",    # Male, energetic
+    "lea": "alloy",       # Female, neutral
+}
 
 CONSULTANTS = {
     "marie": {
@@ -200,3 +212,41 @@ def chat_with_consultant(request):
     response['Cache-Control'] = 'no-cache'
     response['X-Accel-Buffering'] = 'no'
     return response
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def text_to_speech(request):
+    """Convert text to speech using OpenAI TTS. Returns audio/mpeg."""
+    from django.http import HttpResponse
+    from openai import OpenAI
+
+    text = request.data.get('text', '').strip()
+    consultant_id = request.data.get('consultant_id', 'marie')
+
+    if not text:
+        return Response({'error': 'Texte requis'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if len(text) > 4096:
+        text = text[:4096]
+
+    voice = CONSULTANT_VOICES.get(consultant_id, 'nova')
+
+    try:
+        client = OpenAI(api_key=settings.OPENAI_API_KEY)
+        tts_response = client.audio.speech.create(
+            model="tts-1",
+            voice=voice,
+            input=text,
+            response_format="mp3",
+        )
+
+        audio_content = tts_response.content
+        response = HttpResponse(audio_content, content_type='audio/mpeg')
+        response['Content-Disposition'] = 'inline'
+        response['Cache-Control'] = 'public, max-age=3600'
+        return response
+
+    except Exception as e:
+        logger.error(f"TTS error: {e}", exc_info=True)
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
