@@ -22,6 +22,7 @@ from . import knowledge_base
 from . import facebook
 from . import instagram
 from . import adapt
+from . import consultants
 
 urlpatterns = [
     # Auth
@@ -148,6 +149,9 @@ urlpatterns = [
 
     # Adapt (cross-platform)
     path('adapt/', adapt.adapt_post, name='adapt_post'),
+
+    # AI Consultants
+    path('consultants/chat/', consultants.chat_with_consultant, name='consultant_chat'),
 
     # PDF Export (Playwright server-side)
     path('carousel/export-pdf/', pdf_views.export_carousel_pdf, name='export_carousel_pdf'),

@@ -85,6 +85,20 @@ def _generate_claude(system_prompt, user_message, max_tokens):
     return response.content[0].text
 
 
+def generate_chat_stream(system_prompt, messages, max_tokens=1024):
+    """Stream a multi-turn Claude chat response. Yields text chunks."""
+    import anthropic
+    client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+    with client.messages.stream(
+        model="claude-sonnet-4-20250514",
+        max_tokens=max_tokens,
+        system=system_prompt,
+        messages=messages,
+    ) as stream:
+        for text in stream.text_stream:
+            yield text
+
+
 def _generate_gemini(system_prompt, user_message, max_tokens):
     from google import genai
     from google.genai import types
