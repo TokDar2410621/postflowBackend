@@ -23,6 +23,7 @@ from . import facebook
 from . import instagram
 from . import adapt
 from . import consultants
+from . import coaching
 
 urlpatterns = [
     # Auth
@@ -175,4 +176,9 @@ urlpatterns = [
     path('analytics/chart/', analytics.get_analytics_chart, name='analytics_chart'),
     path('analytics/top/', analytics.get_top_posts, name='analytics_top'),
     path('analytics/refresh/', linkedin.refresh_stats, name='refresh_stats'),
+
+    # Coaching (learned patterns surfaced from the L2 extractor)
+    path('coaching/rules/', coaching.coaching_rules, name='coaching_rules'),
+    path('coaching/rules/<int:pk>/reject/', coaching.coaching_reject_rule, name='coaching_reject_rule'),
+    path('coaching/rules/<int:pk>/confirm/', coaching.coaching_confirm_rule, name='coaching_confirm_rule'),
 ]

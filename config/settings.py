@@ -33,6 +33,7 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
     'api.apps.ApiConfig',
+    'rag_memory_pgvector',
 ]
 
 MIDDLEWARE = [
@@ -289,6 +290,20 @@ PLAN_LIMITS = {
         'kb_max_documents': 100,
     },
 }
+
+# RAG (rag_memory_pgvector) — per-user memory + engagement-based learning loop
+VOYAGE_API_KEY = os.getenv('VOYAGE_API_KEY', '')
+RAG_EMBEDDING_DIMENSIONS = 512
+RAG_TOP_K_DEFAULT = 6
+RAG_MEMORY_KINDS = [
+    ('brand_voice',   'Voix de marque'),
+    ('past_post',     'Post passé'),
+    ('audience',      'Audience / persona'),
+    ('decision',      'Décision éditoriale'),
+    ('manual',        'Note manuelle'),
+    ('learned_rule',  'Pattern gagnant appris (L2)'),
+    ('anti_pattern',  'Pattern à éviter appris (L2)'),
+]
 
 # Email Configuration
 EMAIL_BACKEND = os.getenv('EMAIL_BACKEND', 'django.core.mail.backends.console.EmailBackend')

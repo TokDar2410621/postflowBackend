@@ -307,6 +307,15 @@ Résumé additionnel fourni par l'utilisateur :
         user_context = get_user_context(request)
         system_prompt = build_system_prompt(objective, tone, platform=platform, profile=user_context, web_context=web_context, use_profile=use_profile)
 
+        # RAG : injecter les memories du user (past_posts, brand_voice, learned_rules…).
+        # Epsilon-greedy : ~20% des générations skip les learned_rules pour explorer.
+        from .rag_helpers import build_rag_context
+        rag_block, _rag_memory_ids, _rag_exploring = build_rag_context(
+            request.user, full_context, k=8,
+        )
+        if rag_block:
+            system_prompt = f"{system_prompt}\n\n{rag_block}"
+
         user_message = f"Voici le contexte à transformer en post LinkedIn :\n\n{full_context}"
         if web_context:
             user_message += f"\n\n---\n{web_context}"

@@ -45,3 +45,6 @@ htmlcov/
 
 # Railway
 .railway/
+
+# Tooling output
+graphify-out/

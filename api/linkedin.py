@@ -378,7 +378,7 @@ def linkedin_publish(request):
 
         # Sauvegarder dans PublishedPost pour les analytics
         tone = request.data.get('tone', '')
-        PublishedPost.objects.create(
+        published = PublishedPost.objects.create(
             user=request.user,
             linkedin_post_id=linkedin_post_id,
             content=content,
@@ -393,6 +393,9 @@ def linkedin_publish(request):
                 post_first_comment_to_linkedin(account, linkedin_post_id, first_comment)
             except Exception as e:
                 logger.warning(f"First comment failed for post {linkedin_post_id}: {e}")
+
+        from .linkedin_rag import safe_index_published_post
+        safe_index_published_post(published)
 
         return Response({
             'success': True,
@@ -736,13 +739,16 @@ def linkedin_publish_carousel(request):
         # Extraire l'ID du post
         linkedin_post_id = response.headers.get('x-restli-id', '')
 
-        PublishedPost.objects.create(
+        published = PublishedPost.objects.create(
             user=request.user,
             linkedin_post_id=linkedin_post_id,
             content=caption,
             has_images=False,
             tone='',
         )
+
+        from .linkedin_rag import safe_index_published_post
+        safe_index_published_post(published)
 
         return Response({
             'success': True,
